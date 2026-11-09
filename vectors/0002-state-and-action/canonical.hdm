@@ -1,0 +1,20 @@
+# Product
+
+A durable **12L oven** with steam injection.
+
+```hdm-state
+id: h9984de26c2
+count: 0
+tags: ["a","b"]
+title: "Weekly report"
+
+```
+
+```hdm-action?name=cart.add&on:click
+id: h88ef3303b9
+role: primary
+args: {"sku":"oven-12l"}
+---
+Add to cart
+
+```

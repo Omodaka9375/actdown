@@ -1,0 +1,32 @@
+# Upload
+
+```hdm-state
+filename: "report.pdf"
+```
+
+```hdm-action?name=upload.file&role=primary&on:click
+id: upload
+---
+Upload {filename}
+```
+
+```hdm-region
+for: upload
+phase: pending
+---
+Uploading {filename}...
+```
+
+```hdm-region
+for: upload
+phase: success
+---
+Done.
+```
+
+```hdm-region
+for: upload
+phase: failure
+---
+Upload failed.
+```

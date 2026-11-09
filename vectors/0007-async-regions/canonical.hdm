@@ -1,0 +1,42 @@
+# Upload
+
+```hdm-state
+id: h0ae5bfe32e
+filename: report.pdf
+
+```
+
+```hdm-action?name=upload.file&on:click
+id: upload
+role: primary
+---
+Upload {filename}
+
+```
+
+```hdm-region
+id: h020b876a51
+for: upload
+phase: pending
+---
+Uploading {filename}...
+
+```
+
+```hdm-region
+id: h18072ad290
+for: upload
+phase: success
+---
+Done.
+
+```
+
+```hdm-region
+id: hcdd4032139
+for: upload
+phase: failure
+---
+Upload failed.
+
+```

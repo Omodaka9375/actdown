@@ -1,0 +1,9 @@
+{
+  "hdm": "0.1",
+  "nodes": [
+    {
+      "kind": "prose",
+      "md": "# Hello\n\nThis is **bold** and a [link](https://example.com).\n\n- a list\n- of items"
+    }
+  ]
+}

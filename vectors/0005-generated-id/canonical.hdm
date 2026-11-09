@@ -1,0 +1,15 @@
+# Counter
+
+```hdm-state
+id: ha66975ac9b
+count: 0
+
+```
+
+```hdm-region
+id: he844f10222
+when: {count > 0}
+---
+Visible when the counter is above zero.
+
+```

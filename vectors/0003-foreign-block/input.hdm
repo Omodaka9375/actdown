@@ -1,0 +1,9 @@
+# Forward compatibility
+
+```hdm-widget?from=2030
+payload: anything
+```
+
+```js
+console.log("plain code fence stays prose");
+```

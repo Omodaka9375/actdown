@@ -1,0 +1,79 @@
+{
+  "hdm": "0.1",
+  "nodes": [
+    {
+      "kind": "prose",
+      "md": "# Cart"
+    },
+    {
+      "kind": "block",
+      "type": "state",
+      "id": "hd917a49c89",
+      "attrs": {},
+      "fields": {
+        "count": 2,
+        "price": 5,
+        "tags": [
+          "mug",
+          "oven"
+        ],
+        "total": {
+          "kind": "expr",
+          "raw": "count + price"
+        }
+      },
+      "body": null,
+      "line": 3
+    },
+    {
+      "kind": "block",
+      "type": "action",
+      "id": "hb981a51c33",
+      "role": "primary",
+      "attrs": {
+        "name": "cart.add",
+        "on:click": ""
+      },
+      "fields": {
+        "args": {
+          "sku": "oven-12l"
+        }
+      },
+      "body": "Add {count} items",
+      "line": 10
+    },
+    {
+      "kind": "block",
+      "type": "region",
+      "id": "h20c245f60d",
+      "attrs": {},
+      "fields": {
+        "when": {
+          "kind": "expr",
+          "raw": "count > 0"
+        }
+      },
+      "body": "{total} in the cart",
+      "line": 16
+    },
+    {
+      "kind": "block",
+      "type": "text",
+      "id": "hc754cce340",
+      "attrs": {},
+      "fields": {
+        "each": "item in tags",
+        "body": {
+          "kind": "expr",
+          "raw": "item"
+        }
+      },
+      "body": null,
+      "line": 22
+    },
+    {
+      "kind": "prose",
+      "md": "You owe {total} dollars."
+    }
+  ]
+}

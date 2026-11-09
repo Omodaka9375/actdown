@@ -1,0 +1,16 @@
+[package]
+name = "htmldown"
+version = "0.1.0"
+edition = "2021"
+description = "Interactive markup language for agents and humans (spec draft 0.1) - Rust/WASM port"
+license = "MIT"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha1 = "0.10"
+indexmap = { version = "2", features = ["serde"] }

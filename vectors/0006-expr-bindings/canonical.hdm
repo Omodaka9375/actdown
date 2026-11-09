@@ -1,0 +1,36 @@
+# Cart
+
+```hdm-state
+id: hd917a49c89
+count: 2
+price: 5
+tags: ["mug","oven"]
+total: {count + price}
+
+```
+
+```hdm-action?name=cart.add&on:click
+id: hb981a51c33
+role: primary
+args: {"sku":"oven-12l"}
+---
+Add {count} items
+
+```
+
+```hdm-region
+id: h20c245f60d
+when: {count > 0}
+---
+{total} in the cart
+
+```
+
+```hdm-text
+id: hc754cce340
+each: "item in tags"
+body: {item}
+
+```
+
+You owe {total} dollars.

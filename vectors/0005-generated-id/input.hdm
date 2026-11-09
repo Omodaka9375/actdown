@@ -1,0 +1,11 @@
+# Counter
+
+```hdm-state
+count: 0
+```
+
+```hdm-region
+when: {count > 0}
+---
+Visible when the counter is above zero.
+```

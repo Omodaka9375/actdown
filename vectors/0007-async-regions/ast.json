@@ -1,0 +1,69 @@
+{
+  "hdm": "0.1",
+  "nodes": [
+    {
+      "kind": "prose",
+      "md": "# Upload"
+    },
+    {
+      "kind": "block",
+      "type": "state",
+      "id": "h0ae5bfe32e",
+      "attrs": {},
+      "fields": {
+        "filename": "report.pdf"
+      },
+      "body": null,
+      "line": 3
+    },
+    {
+      "kind": "block",
+      "type": "action",
+      "id": "upload",
+      "role": "primary",
+      "attrs": {
+        "name": "upload.file",
+        "on:click": ""
+      },
+      "fields": {},
+      "body": "Upload {filename}",
+      "line": 7
+    },
+    {
+      "kind": "block",
+      "type": "region",
+      "id": "h020b876a51",
+      "attrs": {},
+      "fields": {
+        "for": "upload",
+        "phase": "pending"
+      },
+      "body": "Uploading {filename}...",
+      "line": 13
+    },
+    {
+      "kind": "block",
+      "type": "region",
+      "id": "h18072ad290",
+      "attrs": {},
+      "fields": {
+        "for": "upload",
+        "phase": "success"
+      },
+      "body": "Done.",
+      "line": 20
+    },
+    {
+      "kind": "block",
+      "type": "region",
+      "id": "hcdd4032139",
+      "attrs": {},
+      "fields": {
+        "for": "upload",
+        "phase": "failure"
+      },
+      "body": "Upload failed.",
+      "line": 27
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "htmldown",
+  "version": "0.1.0",
+  "description": "Interactive markup language for agents and humans (spec draft 0.1)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "verify": "node scripts/verify.mjs",
+    "verify:rs": "cargo test --manifest-path htmldown-rs/Cargo.toml",
+    "edge": "node dist/serve.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

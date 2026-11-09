@@ -1,0 +1,34 @@
+{
+  "hdm": "0.1",
+  "nodes": [
+    {
+      "kind": "prose",
+      "md": "# Counter"
+    },
+    {
+      "kind": "block",
+      "type": "state",
+      "id": "ha66975ac9b",
+      "attrs": {},
+      "fields": {
+        "count": 0
+      },
+      "body": null,
+      "line": 3
+    },
+    {
+      "kind": "block",
+      "type": "region",
+      "id": "he844f10222",
+      "attrs": {},
+      "fields": {
+        "when": {
+          "kind": "expr",
+          "raw": "count > 0"
+        }
+      },
+      "body": "Visible when the counter is above zero.",
+      "line": 7
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+# Cart
+
+```hdm-state
+count: 2
+price: 5
+tags: ["mug", "oven"]
+total: {count + price}
+```
+
+```hdm-action?name=cart.add&role=primary&on:click
+args: { "sku": "oven-12l" }
+---
+Add {count} items
+```
+
+```hdm-region
+when: {count > 0}
+---
+{total} in the cart
+```
+
+```hdm-text
+each: item in tags
+body: {item}
+```
+
+You owe {total} dollars.

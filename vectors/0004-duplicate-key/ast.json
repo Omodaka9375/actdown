@@ -1,0 +1,21 @@
+{
+  "hdm": "0.1",
+  "nodes": [
+    {
+      "kind": "prose",
+      "md": "# Demotion"
+    },
+    {
+      "kind": "block",
+      "foreign": true,
+      "type": "state",
+      "raw": "```hdm-state\ncount: 0\ncount: 1\n```",
+      "line": 3,
+      "diagnostic": {
+        "code": "E_DUPLICATE_KEY",
+        "message": "duplicate field \"count\"",
+        "line": 5
+      }
+    }
+  ]
+}

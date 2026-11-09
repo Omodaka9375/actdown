@@ -1,0 +1,20 @@
+{
+  "hdm": "0.1",
+  "nodes": [
+    {
+      "kind": "prose",
+      "md": "# Forward compatibility"
+    },
+    {
+      "kind": "block",
+      "foreign": true,
+      "type": "widget",
+      "raw": "```hdm-widget?from=2030\npayload: anything\n```",
+      "line": 3
+    },
+    {
+      "kind": "prose",
+      "md": "```js\nconsole.log(\"plain code fence stays prose\");\n```"
+    }
+  ]
+}
