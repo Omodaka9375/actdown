@@ -97,14 +97,21 @@ export function hydrateDom(
 
   root.querySelectorAll("[data-hdm-id]").forEach((el) => {
     const id = el.getAttribute("data-hdm-id");
-    const block = id === null ? undefined : blocks.get(id);
-    if (block === undefined || id === null) return;
+    if (id === null) return;
+    // `each=` repeats a block as `${id}-${index}`: resolve the source block
+    // and expose the clone index as `$index` so handlers can act on the item.
+    const m = /^(.*)-(\d+)$/.exec(id);
+    const base = m !== null && blocks.has(m[1]!) ? m[1]! : id;
+    const index = base === id ? undefined : Number(m![2]);
+    const block = blocks.get(base);
+    if (block === undefined) return;
     for (const ev of eventsOf(block)) {
       el.addEventListener(ev, (raw) => {
         if (ev === "submit") preventDefault(raw);
-        const dollar =
-          ev === "submit" && block.type === "form" ? { fields: collect(el) } : undefined;
-        void runtime.fire(id, ev, dollar).then(sync, sync);
+        const dollar: Record<string, Literal> = {};
+        if (ev === "submit" && block.type === "form") dollar.fields = collect(el);
+        if (index !== undefined) dollar.index = index;
+        void runtime.fire(base, ev, dollar).then(sync, sync);
       });
     }
   });

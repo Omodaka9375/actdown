@@ -31,7 +31,21 @@ export function esc(s: string): string {
 }
 
 function escAttr(s: string): string {
-  return esc(s).replace(/"/g, "&quot;");
+  // Escape both quote types: several attributes below are built by string
+  // interpolation, so a stray quote must never break out of the attribute.
+  return esc(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+/**
+ * A link URL is inert only when it is relative or uses http(s)/mailto/tel.
+ * Everything else (javascript:, data:, vbscript:) is replaced with "#" so a
+ * converted page cannot carry a live script URL (SEC: untrusted content).
+ */
+export function safeUrl(u: string): string {
+  const t = u.trim();
+  if (/^https?:\/\//i.test(t) || /^mailto:/i.test(t) || /^tel:/i.test(t)) return t;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(t)) return "#";
+  return t;
 }
 
 /**
@@ -83,7 +97,7 @@ function inline(s: string, env?: Scope): string {
   out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-  out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2">$1</a>');
+  out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, text: string, href: string) => `<a href="${escAttr(safeUrl(href))}">${text}</a>`);
   return out;
 }
 
@@ -245,7 +259,7 @@ function renderAction(b: BlockNode, opts: RenderOptions, env?: Scope): string {
   const disabled = known ? "" : " disabled";
   const label = bind(b.body ?? "", env);
   if (b.attrs.href !== undefined) {
-    return `<a href="${escAttr(attr(b.attrs.href))}" ${dataAttrs(b)}${missing}>${label}</a>`;
+    return `<a href="${escAttr(safeUrl(attr(b.attrs.href)))}" ${dataAttrs(b)}${missing}>${label}</a>`;
   }
   return `<button ${dataAttrs(b)}${missing}${disabled}>${label}</button>`;
 }
@@ -293,12 +307,13 @@ export function renderBlock(b: BlockNode, opts: RenderOptions, env?: Scope): str
         b.fields[k] === undefined || typeof b.fields[k] !== "number"
           ? ""
           : ` ${k}="${b.fields[k]}"`;
-      const src = b.fields.src === undefined ? "" : escAttr(printLiteral(b.fields.src));
+      const src = b.fields.src === undefined ? "" : escAttr(safeUrl(printLiteral(b.fields.src)));
       const alt = b.fields.alt === undefined ? "" : escAttr(printLiteral(b.fields.alt));
       return `<img src="${src}" alt="${alt}"${dim("width")}${dim("height")}>`;
     }
     case "link":
-      return `<a href="${escAttr(b.fields.href === undefined ? "" : printLiteral(b.fields.href))}" ${dataAttrs(b)}>${bind(b.body ?? "", env)}</a>`;
+      const href = b.fields.href === undefined ? "" : printLiteral(b.fields.href);
+      return `<a href="${escAttr(safeUrl(href))}" ${dataAttrs(b)}>${bind(b.body ?? "", env)}</a>`;
     case "table":
       return renderTable(b);
     case "chart":

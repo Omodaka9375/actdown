@@ -111,7 +111,7 @@ fn tokenize(src: &str) -> Result<Vec<Tok>, ExprError> {
                 if i >= b.len() {
                     return Err(ExprError::new(E_EXPR_PARSE, "unterminated string"));
                 }
-                let ch = b[i] as char;
+                let ch = src[i..].chars().next().unwrap();
                 if ch == '"' {
                     i += 1;
                     break;
@@ -144,7 +144,7 @@ fn tokenize(src: &str) -> Result<Vec<Tok>, ExprError> {
                     continue;
                 }
                 out.push(ch);
-                i += 1;
+                i += ch.len_utf8();
             }
             toks.push(Tok::Str(out));
             let _ = start;
@@ -199,9 +199,20 @@ fn name_re() -> &'static Regex {
 struct Parser {
     toks: Vec<Tok>,
     i: usize,
+    depth: usize,
 }
 
 impl Parser {
+    /// SEC-4: bound parser recursion too (E_EXPR_DEPTH), like the evaluator.
+    fn enter(&mut self) -> Result<(), ExprError> {
+        self.depth += 1;
+        if self.depth > 64 {
+            self.depth -= 1;
+            return Err(ExprError::new(E_EXPR_DEPTH, "expression nesting too deep"));
+        }
+        Ok(())
+    }
+
     fn peek(&self) -> Option<&Tok> {
         self.toks.get(self.i)
     }
@@ -285,13 +296,13 @@ impl Parser {
     }
 
     fn unary(&mut self) -> Result<ExprAst, ExprError> {
-        if self.at_op("!") {
+        if self.at_op("!") || self.at_op("-") {
+            self.enter()?;
+            let op = if self.at_op("!") { '!' } else { '-' };
             self.next()?;
-            return Ok(ExprAst::Un('!', Box::new(self.unary()?)));
-        }
-        if self.at_op("-") {
-            self.next()?;
-            return Ok(ExprAst::Un('-', Box::new(self.unary()?)));
+            let operand = self.unary();
+            self.depth -= 1;
+            return Ok(ExprAst::Un(op, Box::new(operand?)));
         }
         self.postfix()
     }
@@ -309,8 +320,11 @@ impl Parser {
                 continue;
             }
             if self.at_op("[") {
+                self.enter()?;
                 self.next()?;
-                let index = self.or()?;
+                let index = self.or();
+                self.depth -= 1;
+                let index = index?;
                 self.expect_op("]")?;
                 e = ExprAst::Idx(Box::new(e), Box::new(index));
                 continue;
@@ -336,6 +350,22 @@ impl Parser {
         }
     }
 
+    fn arr_items(&mut self) -> Result<Vec<ExprAst>, ExprError> {
+        let mut items = Vec::new();
+        if !self.at_op("]") {
+            loop {
+                items.push(self.or()?);
+                if self.at_op(",") {
+                    self.next()?;
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect_op("]")?;
+        Ok(items)
+    }
+
     fn primary(&mut self) -> Result<ExprAst, ExprError> {
         let t = self.next()?;
         match t {
@@ -349,7 +379,10 @@ impl Parser {
             },
             Tok::Op(op) => match op.as_str() {
                 "(" => {
-                    let e = self.or()?;
+                    self.enter()?;
+                    let e = self.or();
+                    self.depth -= 1;
+                    let e = e?;
                     self.expect_op(")")?;
                     Ok(e)
                 }
@@ -379,19 +412,10 @@ impl Parser {
                     Ok(ExprAst::Obj(entries))
                 }
                 "[" => {
-                    let mut items = Vec::new();
-                    if !self.at_op("]") {
-                        loop {
-                            items.push(self.or()?);
-                            if self.at_op(",") {
-                                self.next()?;
-                                continue;
-                            }
-                            break;
-                        }
-                    }
-                    self.expect_op("]")?;
-                    Ok(ExprAst::Arr(items))
+                    self.enter()?;
+                    let items = self.arr_items();
+                    self.depth -= 1;
+                    Ok(ExprAst::Arr(items?))
                 }
                 "$" => {
                     let n = self.next()?;
@@ -408,7 +432,7 @@ impl Parser {
 
 /// Parse an expression string into an AST. Throws `E_EXPR_PARSE`.
 pub fn parse_expr(raw: &str) -> Result<ExprAst, ExprError> {
-    let mut p = Parser { toks: tokenize(raw)?, i: 0 };
+    let mut p = Parser { toks: tokenize(raw)?, i: 0, depth: 0 };
     p.parse()
 }
 
@@ -549,7 +573,8 @@ pub fn evaluate(ast: &ExprAst, ctx: &mut EvalContext) -> Result<Literal, ExprErr
                                     _ => return Err(ExprError::new(E_EXPR_EVAL, "capability name must be a string")),
                                 };
                                 let send = self.ctx.send.as_mut().unwrap();
-                                return send(&name, cap_args).or(Ok(Literal::Null));
+                                // Capability errors (E_CAP_MISSING, ...) propagate, as in TS.
+                                return send(&name, cap_args);
                             }
                         }
                     }
@@ -591,7 +616,7 @@ pub fn evaluate(ast: &ExprAst, ctx: &mut EvalContext) -> Result<Literal, ExprErr
                             "!=" => Ok(Literal::Bool(!deep_equal(&l, &r))),
                             "<" | "<=" | ">" | ">=" => match (&l, &r) {
                                 (Literal::Num(a), Literal::Num(b)) => {
-                                    check_num(a + b)?;
+                                    // Both operands are finite; a comparison needs no overflow check.
                                     Ok(Literal::Bool(match op.as_str() {
                                         "<" => a < b,
                                         "<=" => a <= b,
@@ -712,5 +737,38 @@ mod tests {
         let src = "1".to_string() + &"+1".repeat(2000);
         let err = eval(&src, &scope).unwrap_err();
         assert_eq!(err.code, E_EXPR_DEPTH);
+    }
+
+    #[test]
+    fn non_ascii_strings_survive_the_tokenizer() {
+        let scope = Scope::new();
+        assert_eq!(eval("\"café\"", &scope).unwrap(), Literal::Str("café".into()));
+        assert_eq!(eval("\"日本語\"", &scope).unwrap(), Literal::Str("日本語".into()));
+    }
+
+    #[test]
+    fn cap_send_errors_propagate() {
+        let scope = Scope::new();
+        let mut sink = |_name: &str, _args: Literal| -> Result<Literal, ExprError> {
+            Err(ExprError::new("E_CAP_MISSING", "capability not granted: x"))
+        };
+        let mut ctx = EvalContext { scope: &scope, dollar: None, send: Some(&mut sink), max_steps: 1000, max_depth: 64 };
+        let err = evaluate(&parse_expr("cap.send(\"x\", 1)").unwrap(), &mut ctx).unwrap_err();
+        assert_eq!(err.code, "E_CAP_MISSING");
+    }
+
+    #[test]
+    fn large_finite_comparisons_do_not_overflow() {
+        let scope = Scope::new();
+        assert_eq!(eval("1e308 <= 1e308", &scope).unwrap(), Literal::Bool(true));
+        assert!(eval("1e308 + 1e308", &scope).is_err());
+    }
+
+    #[test]
+    fn parser_nesting_is_capped() {
+        let deep = "(".repeat(5000) + "1" + &")".repeat(5000);
+        assert_eq!(parse_expr(&deep).unwrap_err().code, E_EXPR_DEPTH);
+        let deep_idx = "a".to_string() + &"[".repeat(5000) + "0" + &"]".repeat(5000);
+        assert_eq!(parse_expr(&deep_idx).unwrap_err().code, E_EXPR_DEPTH);
     }
 }

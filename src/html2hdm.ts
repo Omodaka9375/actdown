@@ -49,6 +49,11 @@ function mdEscape(s: string): string {
   return s.replace(/([\\`*_\[\]])/g, "\\$1");
 }
 
+/** A URL inside markdown `(...)` must not close the link early. */
+function mdUrl(u: string): string {
+  return u.replace(/[()\\]/g, (c) => (c === "\\" ? "\\\\" : `\\${c}`));
+}
+
 /** Render an inline subtree as markdown (exported for tests/debug). */
 export function inlineMd(node: HtmlNode): string {
   let out = "";
@@ -80,10 +85,10 @@ function inlineSelf(el: HtmlNode): string {
       return `\`${textOf(el).trim()}\``;
     case "a": {
       const href = el.attrs.href;
-      return href === undefined ? inlineMd(el) : `[${inlineMd(el).trim()}](${href})`;
+      return href === undefined ? inlineMd(el) : `[${inlineMd(el).trim()}](${mdUrl(href)})`;
     }
     case "img":
-      return `![${el.attrs.alt ?? ""}](${el.attrs.src ?? ""})`;
+      return `![${el.attrs.alt ?? ""}](${mdUrl(el.attrs.src ?? "")})`;
     default:
       return inlineMd(el);
   }

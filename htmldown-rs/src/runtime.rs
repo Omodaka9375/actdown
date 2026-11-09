@@ -125,13 +125,15 @@ fn run_capability(
 /// Hydrate a document: attach capabilities by block id and keep the flat
 /// state map. Document state-block literals seed the scope once, here;
 /// afterwards the runtime's map is authoritative (SPEC 5).
-pub fn hydrate(doc: Doc, caps: &CapabilityRegistry) -> Runtime<'_> {
+pub fn hydrate(doc: Doc, caps: &CapabilityRegistry) -> Result<Runtime<'_>, ExprError> {
     hydrate_with_initial(doc, caps, Scope::new())
 }
 
-pub fn hydrate_with_initial(doc: Doc, caps: &CapabilityRegistry, initial: Scope) -> Runtime<'_> {
-    let scope = compute_state(&doc, Some(&initial)).unwrap_or_default();
-    Runtime { doc, scope, phases: PhaseMap::new(), caps }
+/// Like TS `hydrate`, a failing computed-state expression is an error, not an
+/// empty scope (which would silently drop even the literal state entries).
+pub fn hydrate_with_initial(doc: Doc, caps: &CapabilityRegistry, initial: Scope) -> Result<Runtime<'_>, ExprError> {
+    let scope = compute_state(&doc, Some(&initial))?;
+    Ok(Runtime { doc, scope, phases: PhaseMap::new(), caps })
 }
 
 pub struct Runtime<'a> {
@@ -215,7 +217,13 @@ impl<'a> Runtime<'a> {
             if let Some(AttrValue::Str(name)) = block.attrs.get("name") {
                 let args = match block.fields.get("args") {
                     Some(FieldValue::Lit(lit)) => lit.clone(),
-                    _ => Literal::Null,
+                    // An expression `args` evaluates against state, as in TS.
+                    Some(FieldValue::Expr(e)) => {
+                        let ast = parse_expr(&e.raw).map_err(RuntimeError::Expr)?;
+                        let mut ctx = EvalContext::render(&self.scope);
+                        evaluate(&ast, &mut ctx).map_err(RuntimeError::Expr)?
+                    }
+                    None => Literal::Null,
                 };
                 return run_capability(caps, name, args, &mut self.scope, &mut self.phases, block_id);
             }
@@ -264,7 +272,7 @@ mod tests {
             patch.insert("count".into(), Literal::Num(count + 1.0));
             Ok(CapResult::patch(patch))
         });
-        let mut rt = hydrate(doc(COUNTER), &caps);
+        let mut rt = hydrate(doc(COUNTER), &caps).unwrap();
         assert_eq!(rt.state().get("count"), Some(&Literal::Num(0.0)));
         rt.fire("inc", "click", None).unwrap();
         assert_eq!(rt.state().get("count"), Some(&Literal::Num(1.0)));
@@ -275,7 +283,7 @@ mod tests {
     #[test]
     fn runtime_state_wins_over_document_literals() {
         let caps = CapabilityRegistry::new();
-        let mut rt = hydrate(doc(COUNTER), &caps);
+        let mut rt = hydrate(doc(COUNTER), &caps).unwrap();
         let mut patch = Scope::new();
         patch.insert("count".into(), Literal::Num(7.0));
         rt.set(patch);
@@ -296,7 +304,7 @@ mod tests {
             patch.insert("last".into(), value);
             Ok(CapResult::patch(patch))
         });
-        let mut rt = hydrate(doc(src), &caps);
+        let mut rt = hydrate(doc(src), &caps).unwrap();
         let mut dollar = Scope::new();
         dollar.insert("value".into(), Literal::Str("hi".into()));
         rt.fire("echo", "click", Some(&dollar)).unwrap();
@@ -306,7 +314,7 @@ mod tests {
     #[test]
     fn refuses_capabilities_that_are_not_granted_sec_1() {
         let caps = CapabilityRegistry::new();
-        let mut rt = hydrate(doc(COUNTER), &caps);
+        let mut rt = hydrate(doc(COUNTER), &caps).unwrap();
         let err = rt.fire("inc", "click", None).unwrap_err();
         assert_eq!(err.code(), "E_CAP_MISSING");
     }
@@ -316,7 +324,7 @@ mod tests {
         let caps = CapabilityRegistry::new().grant("doc.save", |_args, _state| {
             Err(RuntimeError::CapMissing("disk full".into()))
         });
-        let mut rt = hydrate(doc(SAVE), &caps);
+        let mut rt = hydrate(doc(SAVE), &caps).unwrap();
         let err = rt.fire("save", "click", None).unwrap_err();
         assert_eq!(err.code(), "E_CAP_MISSING");
         assert_eq!(rt.phases().get("save").map(String::as_str), Some("failure"));
@@ -338,7 +346,7 @@ mod tests {
             patch.insert("email".into(), email);
             Ok(CapResult::patch(patch))
         });
-        let mut rt = hydrate(doc(src), &caps);
+        let mut rt = hydrate(doc(src), &caps).unwrap();
         let mut fields = Scope::new();
         fields.insert("email".into(), Literal::Str("a@b.c".into()));
         rt.submit("contact", fields).unwrap();
@@ -349,7 +357,7 @@ mod tests {
     #[test]
     fn unknown_block_ids_error() {
         let caps = CapabilityRegistry::new();
-        let mut rt = hydrate(doc(COUNTER), &caps);
+        let mut rt = hydrate(doc(COUNTER), &caps).unwrap();
         let err = rt.fire("missing", "click", None).unwrap_err();
         assert_eq!(err.code(), "E_NO_BLOCK");
     }

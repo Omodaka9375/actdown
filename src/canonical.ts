@@ -79,11 +79,18 @@ function genId(b: BlockNode): string {
 }
 
 export function canonicalize(doc: Doc): Doc {
+  const seen = new Set<string>();
   const nodes = doc.nodes.map((n) => {
-    if (n.kind === "block" && !isForeign(n) && n.id === "") {
-      return { ...n, id: genId(n) };
+    if (n.kind !== "block" || isForeign(n)) return n;
+    let id = n.id === "" ? genId(n) : n.id;
+    // Explicit ids can collide (e.g. repeated slugs from html2hdm); the parser
+    // rejects duplicates, so canonicalize makes later ones unique instead.
+    if (seen.has(id)) {
+      const base = id;
+      for (let k = 2; seen.has(id); k += 1) id = `${base}-${k}`;
     }
-    return n;
+    seen.add(id);
+    return id === n.id ? n : { ...n, id };
   });
   return { hdm: doc.hdm, nodes };
 }

@@ -41,7 +41,12 @@ pub fn parse_field(value: &str, line: u32) -> Result<FieldValue, ParseError> {
         return Ok(FieldValue::Lit(Literal::Null));
     }
     if is_numeric(s) {
-        return Ok(FieldValue::Lit(Literal::Num(s.parse::<f64>().unwrap_or(f64::NAN))));
+        let n = s.parse::<f64>().unwrap_or(f64::NAN);
+        // Non-finite numbers cannot round-trip (they serialize as null): refuse, as TS does.
+        if !n.is_finite() {
+            return Err(err("E_BAD_LITERAL", &format!("number out of range: {}", s), line));
+        }
+        return Ok(FieldValue::Lit(Literal::Num(n)));
     }
     Ok(FieldValue::Lit(Literal::Str(unescape_bare(s))))
 }
@@ -59,13 +64,19 @@ fn is_numeric(s: &str) -> bool {
     }
     let int_digits = i - digits_start;
     let mut frac_digits = 0;
+    let mut has_dot = false;
     if i < b.len() && b[i] == b'.' {
+        has_dot = true;
         i += 1;
         let fs = i;
         while i < b.len() && b[i].is_ascii_digit() {
             i += 1;
         }
         frac_digits = i - fs;
+    }
+    // TS requires at least one digit after a `.`: `1.` and `5.e3` are strings.
+    if has_dot && frac_digits == 0 {
+        return false;
     }
     if int_digits == 0 && frac_digits == 0 {
         return false;
@@ -180,14 +191,29 @@ pub fn js_stringify_fields(fields: &IndexMap<String, FieldValue>) -> String {
     format!("{{{}}}", inner.join(","))
 }
 
+/// JavaScript `Number::toString` / `JSON.stringify` number formatting:
+/// plain fixed notation for 1e-6 <= |v| < 1e21, exponent notation outside it.
 pub fn js_num_to_string(v: f64) -> String {
-    if v.is_finite() && v == v.trunc() && v.abs() < 9.007_199_254_740_992e15 {
-        format!("{}", v as i64)
-    } else if v.is_finite() {
-        format!("{}", v)
-    } else {
-        "null".into() // JS JSON.stringify(NaN/Infinity) is null; SPEC 6 rejects these anyway
+    if !v.is_finite() {
+        return "null".into(); // JS JSON.stringify(NaN/Infinity) is null
     }
+    if v == 0.0 {
+        return "0".into();
+    }
+    let a = v.abs();
+    if a >= 1e21 || a < 1e-6 {
+        // Rust's `{}` already prints the shortest round-trip mantissa in
+        // scientific form (1e21, 1.5e-7); JS wants a `+` on positive exponents.
+        let s = format!("{}", v);
+        return match s.split_once('e') {
+            Some((m, e)) if !e.starts_with('-') && !e.starts_with('+') => format!("{}e+{}", m, e),
+            _ => s,
+        };
+    }
+    if v == v.trunc() && a < 1e21 {
+        return format!("{}", v as i64);
+    }
+    format!("{}", v)
 }
 
 fn js_quote(s: &str) -> String {

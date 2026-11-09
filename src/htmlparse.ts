@@ -45,6 +45,34 @@ function parseAttrs(raw: string): Record<string, string> {
   return attrs;
 }
 
+/** Return the whole opening tag starting at `lt`, honoring quoted `>`. */
+function scanQuotedTag(src: string, lt: number): string | null {
+  let quote: string | null = null;
+  for (let k = lt + 1; k < src.length; k += 1) {
+    const c = src[k]!;
+    if (quote !== null) {
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === "<") return null; // not a single tag
+    if (c === ">") return src.slice(lt, k + 1);
+  }
+  return null;
+}
+
+/** Match an opening tag, honoring quoted `>` inside attribute values. */
+function matchOpenTag(src: string, lt: number): RegExpExecArray | null {
+  const quoted = scanQuotedTag(src, lt);
+  if (quoted === null) return null;
+  // The attr region allows `>` only inside quotes; everything else matches
+  // the original shape (name, attrs, optional self-close, closing bracket).
+  return /^<([a-zA-Z][a-zA-Z0-9-]*)((?:\s(?:[^<>"']|"[^"]*"|'[^']*')*?)?)\s*(\/?)>$/.exec(quoted);
+}
+
 export function parseHtml(src: string): HtmlNode {
   const root: HtmlNode = { tag: "#root", attrs: {}, children: [] };
   const stack: HtmlNode[] = [root];
@@ -81,7 +109,7 @@ export function parseHtml(src: string): HtmlNode {
       i = lt + closeM[0].length;
       continue;
     }
-    const openM = /^<([a-zA-Z][a-zA-Z0-9-]*)((?:\s[^<>]*?)?)\s*(\/?)>/.exec(src.slice(lt));
+    const openM = matchOpenTag(src, lt);
     if (openM === null) {
       push("<");
       i = lt + 1;
@@ -116,10 +144,15 @@ const ENTITIES: Record<string, string> = {
   amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", copy: "\u00a9",
 };
 
+/** A numeric reference outside the Unicode range decodes to U+FFFD, never a throw. */
+function codePoint(n: number): string {
+  return n > 0x10ffff || n < 0 ? "\ufffd" : String.fromCodePoint(n);
+}
+
 export function decodeEntities(s: string): string {
   return s
-    .replace(/&#x([0-9a-fA-F]+);/g, (_m, h: string) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_m, d: string) => String.fromCodePoint(parseInt(d, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, h: string) => codePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_m, d: string) => codePoint(parseInt(d, 10)))
     .replace(/&([a-zA-Z]+);/g, (m, name: string) => ENTITIES[name] ?? m);
 }
 

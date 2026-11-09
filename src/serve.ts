@@ -62,10 +62,15 @@ pane shows the canonical text.</p>
 }
 
 function send(res: ServerResponse, status: number, body: string, contentType: string): void {
-  res.writeHead(status, {
+  const headers: Record<string, string> = {
     "content-type": contentType,
     "x-content-type-options": "nosniff",
-  });
+  };
+  if (contentType.startsWith("text/html")) {
+    // Transcoded content is untrusted: it must never run script on this origin.
+    headers["content-security-policy"] = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
+  }
+  res.writeHead(status, headers);
   res.end(body);
 }
 
@@ -92,6 +97,10 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
   return createServer((req: IncomingMessage, res: ServerResponse) => {
     const u = new URL(req.url ?? "/", "http://localhost");
     void (async () => {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        send(res, 405, JSON.stringify({ code: "E_EDGE_METHOD", message: "GET/HEAD only" }), "application/json; charset=utf-8");
+        return;
+      }
       if (u.pathname === "/" && u.searchParams.has("url")) u.pathname = "/view";
       switch (u.pathname) {
         case "/": {

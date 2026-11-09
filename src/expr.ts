@@ -141,9 +141,24 @@ function tokenize(src: string): Tok[] {
 class Parser {
   private toks: Tok[];
   private i = 0;
+  private depth = 0;
 
   constructor(src: string) {
     this.toks = tokenize(src);
+  }
+
+  /** SEC-4: the parser must bound recursion too, not just the evaluator. */
+  private nested<T>(fn: () => T): T {
+    this.depth += 1;
+    if (this.depth > DEFAULT_LIMITS.maxDepth) {
+      this.depth -= 1;
+      throw new ExprError("E_EXPR_DEPTH", "expression nesting too deep");
+    }
+    try {
+      return fn();
+    } finally {
+      this.depth -= 1;
+    }
   }
 
   private peek(): Tok | undefined {
@@ -216,7 +231,7 @@ class Parser {
   private unary(): ExprAst {
     if (this.atOp("!") || this.atOp("-")) {
       const op = (this.next() as { v: string }).v as "!" | "-";
-      return { k: "un", op, operand: this.unary() };
+      return { k: "un", op, operand: this.nested(() => this.unary()) };
     }
     return this.postfix();
   }
@@ -233,8 +248,11 @@ class Parser {
       }
       if (this.atOp("[")) {
         this.next();
-        const index = this.or();
-        this.expectOp("]");
+        const index = this.nested(() => {
+          const inner = this.or();
+          this.expectOp("]");
+          return inner;
+        });
         e = { k: "idx", obj: e, index };
         continue;
       }
@@ -275,9 +293,11 @@ class Parser {
       case "op":
         switch (t.v) {
           case "(": {
-            const e = this.or();
-            this.expectOp(")");
-            return e;
+            return this.nested(() => {
+              const e = this.or();
+              this.expectOp(")");
+              return e;
+            });
           }
           case "{": {
             const entries: { key: string; value: ExprAst }[] = [];
@@ -300,19 +320,21 @@ class Parser {
             return { k: "obj", entries };
           }
           case "[": {
-            const items: ExprAst[] = [];
-            if (!this.atOp("]")) {
-              for (;;) {
-                items.push(this.or());
-                if (this.atOp(",")) {
-                  this.next();
-                  continue;
+            return this.nested(() => {
+              const items: ExprAst[] = [];
+              if (!this.atOp("]")) {
+                for (;;) {
+                  items.push(this.or());
+                  if (this.atOp(",")) {
+                    this.next();
+                    continue;
+                  }
+                  break;
                 }
-                break;
               }
-            }
-            this.expectOp("]");
-            return { k: "arr", items };
+              this.expectOp("]");
+              return { k: "arr", items };
+            });
           }
           case "$": {
             const n = this.next();
@@ -461,7 +483,8 @@ export function evaluate(ast: ExprAst, ctx: EvalContext): Literal {
           case ">":
           case ">=": {
             if (typeof l === "number" && typeof r === "number") {
-              checkNum(l + r, 0);
+              // Both operands are already finite (literals/arith are checked);
+              // a comparison of finite numbers never needs a new check.
               return e.op === "<" ? l < r : e.op === "<=" ? l <= r : e.op === ">" ? l > r : l >= r;
             }
             if (typeof l === "string" && typeof r === "string") {

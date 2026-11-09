@@ -59,6 +59,42 @@ const DEFAULTS = {
  * fetch time; a hostname that RESOLVES private is not caught here (documented
  * limitation for a dev-tool grade transcoder).
  */
+function isPrivateV4(a: number, b: number): boolean {
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64/10
+  return false;
+}
+
+/** Expand an IPv6 literal to eight 16-bit groups; null when malformed. */
+function expandV6(addr: string): number[] | null {
+  const s = addr.replace(/^\[|\]$/g, "");
+  // A trailing IPv4 dotted quad folds into the last two groups.
+  const last = s.split(":").pop() ?? "";
+  let groupsText = s;
+  if (last.includes(".")) {
+    const o = last.split(".");
+    if (o.length !== 4 || o.some((x) => !/^\d{1,3}$/.test(x) || Number(x) > 255)) return null;
+    const hi = (Number(o[0]) << 8) | Number(o[1]);
+    const lo = (Number(o[2]) << 8) | Number(o[3]);
+    groupsText = s.slice(0, s.length - last.length) + hi.toString(16) + ":" + lo.toString(16);
+  }
+  const double = groupsText.split("::");
+  if (double.length > 2) return null;
+  const head = double[0] === "" ? [] : double[0]!.split(":");
+  const tail = double.length === 2 && double[1] !== "" ? double[1]!.split(":") : [];
+  if ([...head, ...tail].some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null;
+  if (double.length === 2) {
+    const missing = 8 - head.length - tail.length;
+    if (missing < 1) return null;
+    return [...head, ...Array<string>(missing).fill("0"), ...tail].map((g) => parseInt(g, 16));
+  }
+  if (head.length !== 8) return null;
+  return head.map((g) => parseInt(g, 16));
+}
+
 export function isPrivateHost(host: string): boolean {
   const h = host.toLowerCase().replace(/\.$/, "");
   if (h === "localhost" || h.endsWith(".localhost")) return true;
@@ -66,19 +102,24 @@ export function isPrivateHost(host: string): boolean {
   if (v4 !== null) {
     const o = v4.slice(1).map(Number);
     if (o.some((n) => n > 255)) return true; // malformed -> refuse
-    const [a, b] = [o[0]!, o[1]!];
-    if (a === 0 || a === 10 || a === 127) return true;
-    if (a === 192 && b === 168) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 169 && b === 254) return true;
-    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64/10
-    return false;
+    return isPrivateV4(o[0]!, o[1]!);
   }
   if (h.includes(":")) {
-    const v6 = h.replace(/^\[|\]$/g, "");
-    if (v6 === "::" || v6 === "::1") return true;
-    if (/^f[cd]/.test(v6)) return true; // fc00::/7 unique local
-    if (/^fe[89ab]/.test(v6)) return true; // fe80::/10 link local
+    const g = expandV6(h);
+    if (g === null) return true; // malformed address -> refuse
+    const [w0, w1, w2, w3, w4, w5, w6, w7] = g as [number, number, number, number, number, number, number, number];
+    if (g.every((w) => w === 0)) return true; // :: unspecified
+    if ((w0 & 0xfe00) === 0xfc00) return true; // fc00::/7 unique local
+    if ((w0 & 0xffc0) === 0xfe80) return true; // fe80::/10 link local
+    if ((w0 & 0xff80) === 0xfe80 || (w0 & 0xf000) === 0xf000) return true; // site-local / multicast: never fetch
+    // IPv4-mapped ::ffff:a.b.c.d and IPv4-compatible ::a.b.c.d embed a v4 target.
+    if (w0 === 0 && w1 === 0 && w2 === 0 && w3 === 0 && w4 === 0 && (w5 === 0 || w5 === 0xffff)) {
+      return isPrivateV4(w6 >> 8, w6 & 0xff);
+    }
+    // 6to4 2002:aabb::/48 and Teredo 2001:0::/32 embed a v4 target.
+    if (w0 === 0x2002 && isPrivateV4(w1 >> 8, w1 & 0xff)) return true;
+    if (w0 === 0x2001 && w1 === 0) return true; // Teredo: refuses outright
+    if (w0 === 0 && w1 === 0 && w2 === 0 && w3 === 0 && w4 === 0 && w5 === 0 && w6 === 0 && w7 === 1) return true;
     return false;
   }
   return false;
@@ -200,7 +241,9 @@ export function formatConversion(result: TranscodeResult, format: EdgeFormat): {
     case "html":
       return { body: renderReactive(result.doc), contentType: "text/html; charset=utf-8" };
     case "raw":
-      return { body: result.html, contentType: "text/html; charset=utf-8" };
+      // Never served as live HTML on the gateway origin (XSS / SSRF pivot).
+      // The human pane uses a sandboxed iframe; raw itself is inert text.
+      return { body: result.html, contentType: "text/plain; charset=utf-8" };
     case "canonical":
     default:
       return { body: result.canonical, contentType: "text/x-hdm; charset=utf-8" };

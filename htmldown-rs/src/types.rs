@@ -10,7 +10,10 @@ use serde::{Deserialize, Serialize, Serializer};
 /// to exponent notation above 1e21 / below 1e-7; the spec's fixed-point
 /// integer + IEEE 754 model keeps documents out of that regime.
 pub fn js_num<S: Serializer>(v: &f64, s: S) -> Result<S::Ok, S::Error> {
-    if v.is_finite() && *v == v.trunc() && v.abs() < 9.007_199_254_740_992e15 {
+    if !v.is_finite() {
+        return s.serialize_unit(); // JSON.stringify(Infinity/NaN) is null, never a panic
+    }
+    if *v == v.trunc() && v.abs() < 9.007_199_254_740_992e15 {
         s.serialize_i64(*v as i64)
     } else {
         s.serialize_f64(*v)

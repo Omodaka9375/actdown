@@ -28,7 +28,12 @@ export function parseField(value: string, line: number): Literal | Expr {
   if (s === "true") return true;
   if (s === "false") return false;
   if (s === "null") return null;
-  if (/^[+-]?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$/.test(s)) return Number(s);
+  if (/^[+-]?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$/.test(s)) {
+    const n = Number(s);
+    // Non-finite numbers cannot round-trip (they serialize as null): refuse.
+    if (!Number.isFinite(n)) throw new ParseError("E_BAD_LITERAL", `number out of range: ${s}`, line);
+    return n;
+  }
   return unescapeBare(s);
 }
 

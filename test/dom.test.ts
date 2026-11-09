@@ -192,4 +192,21 @@ describe("dom adapter (SPEC 11)", () => {
     handle.sync();
     expect(span.textContent).toBe("7");
   });
+
+  it("wires listeners on each= clones and passes $index", async () => {
+    const src = "```hdm-state\nitems: [10, 20]\n```\n\n```hdm-action?name=item.pick&id=pick&each=item%20in%20items\non:click: cap.send(\"item.pick\", $index)\n---\nPick\n```";
+    const root = dom(renderReactive(doc(src)));
+    const seen: Literal[] = [];
+    hydrateDom(doc(src), root, {
+      capabilities: {
+        "item.pick": (args) => {
+          seen.push(args);
+        },
+      },
+    });
+    byId(root, "pick-0").fire("click");
+    byId(root, "pick-1").fire("click");
+    await flush();
+    expect(seen).toEqual([0, 1]);
+  });
 });

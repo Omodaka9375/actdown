@@ -113,7 +113,13 @@ export function hydrate(doc: Doc, opts: RuntimeOptions = {}): Runtime {
       if (on === undefined || typeof on === "string" || on.raw === "") {
         // SPEC 4.2: a plain action fires its named capability with data args.
         if (event === "click" && block.type === "action" && typeof block.attrs.name === "string") {
-          await runCap(block.attrs.name, (block.fields.args as Literal) ?? null);
+          const rawArgs = block.fields.args;
+          const isExpr =
+            rawArgs !== undefined && typeof rawArgs === "object" && rawArgs !== null && "kind" in rawArgs && rawArgs.kind === "expr";
+          const args: Literal = isExpr
+            ? evaluate(parseExpr((rawArgs as { raw: string }).raw), { scope })
+            : ((rawArgs as Literal | undefined) ?? null);
+          await runCap(block.attrs.name, args);
           return;
         }
         // SPEC 4.3: a plain form fires its `action` capability with the fields.

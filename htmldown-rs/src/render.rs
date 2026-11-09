@@ -33,7 +33,22 @@ pub fn esc(s: &str) -> String {
 }
 
 fn esc_attr(s: &str) -> String {
-    esc(s).replace('"', "&quot;")
+    esc(s).replace('"', "&quot;").replace('\'', "&#39;")
+}
+
+/// Inert link URLs only: http(s)/mailto/tel or relative. Script schemes become "#".
+pub fn safe_url(u: &str) -> String {
+    let t = u.trim();
+    let lower = t.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:") || lower.starts_with("tel:") {
+        return t.to_string();
+    }
+    let scheme_like = t.chars().next().map_or(false, |c| c.is_ascii_alphabetic())
+        && t.split(':').next().map_or(false, |s| s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-')) && t.contains(':'));
+    if scheme_like {
+        return "#".into();
+    }
+    t.to_string()
 }
 
 /// `attr(v)`: plain strings pass through; expressions render as `{raw}`.
@@ -115,7 +130,11 @@ fn inline(s: &str, ctx: RenderCtx) -> String {
     out = inline_code_re().replace_all(&out, "<code>$1</code>").into_owned();
     out = strong_re().replace_all(&out, "<strong>$1</strong>").into_owned();
     out = em_re().replace_all(&out, "<em>$1</em>").into_owned();
-    out = link_re().replace_all(&out, "<a href=\"$2\">$1</a>").into_owned();
+    out = link_re()
+        .replace_all(&out, |c: &regex::Captures| {
+            format!("<a href=\"{}\">{}</a>", esc_attr(&safe_url(c.get(2).unwrap().as_str())), c.get(1).unwrap().as_str())
+        })
+        .into_owned();
     out
 }
 
@@ -243,9 +262,9 @@ pub fn render_markdown(md: &str, ctx: RenderCtx) -> String {
         flush_list(&mut out, &mut list, ctx);
         para.push(ln);
     }
-    if let Some((lang, content)) = fence {
-        let class = if lang.is_empty() { String::new() } else { format!(" class=\"language-{}\"", esc_attr(&lang)) };
-        out.push(format!("<pre><code{}>{}</code></pre>", class, esc(&content.join("\n"))));
+    if let Some((_lang, content)) = fence {
+        // Unterminated fence at EOF: no language class (matches the reference).
+        out.push(format!("<pre><code>{}</code></pre>", esc(&content.join("\n"))));
     }
     flush_para(&mut out, &mut para, ctx);
     flush_list(&mut out, &mut list, ctx);
@@ -279,7 +298,20 @@ fn safe_json_array(s: &str) -> Vec<String> {
             .into_iter()
             .map(|i| match i {
                 serde_json::Value::String(s) => s,
-                other => other.to_string(),
+                // JS String() coercion (the reference maps items through String()).
+                serde_json::Value::Null => "null".into(),
+                serde_json::Value::Bool(b) => b.to_string(),
+                serde_json::Value::Number(n) => crate::literal::js_num_to_string(n.as_f64().unwrap_or(f64::NAN)),
+                serde_json::Value::Array(a) => a
+                    .iter()
+                    .map(|x| match x {
+                        serde_json::Value::String(s) => s.clone(),
+                        serde_json::Value::Null => String::new(),
+                        other => other.to_string(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(","),
+                serde_json::Value::Object(_) => "[object Object]".into(),
             })
             .collect(),
         _ => Vec::new(),
@@ -366,7 +398,7 @@ fn render_controls(b: &BlockNode) -> String {
 fn render_action(b: &BlockNode, ctx: RenderCtx) -> String {
     let label = bind(b.body.as_deref().unwrap_or(""), ctx);
     if let Some(href) = b.attrs.get("href") {
-        return format!("<a href=\"{}\" {}>{}</a>", esc_attr(&attr_value(href)), data_attrs(b), label);
+        return format!("<a href=\"{}\" {}>{}</a>", esc_attr(&safe_url(&attr_value(href))), data_attrs(b), label);
     }
     format!("<button {}>{}</button>", data_attrs(b), label)
 }
@@ -439,7 +471,7 @@ fn render_block(b: &BlockNode, ctx: RenderCtx) -> String {
                 }
                 _ => String::new(),
             };
-            let src = field_str(b, "src").unwrap_or_default();
+            let src = safe_url(&field_str(b, "src").unwrap_or_default());
             let alt = field_str(b, "alt").unwrap_or_default();
             format!(
                 "<img src=\"{}\" alt=\"{}\"{}{}>",
@@ -450,7 +482,7 @@ fn render_block(b: &BlockNode, ctx: RenderCtx) -> String {
             )
         }
         "link" => {
-            let href = field_str(b, "href").unwrap_or_default();
+            let href = safe_url(&field_str(b, "href").unwrap_or_default());
             format!(
                 "<a href=\"{}\" {}>{}</a>",
                 esc_attr(&href),

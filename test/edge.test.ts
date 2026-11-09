@@ -41,6 +41,14 @@ describe("edge core", () => {
       "http://[::1]:8787/x",
       "http://[fd00::1]/x",
       "http://[fe80::1]/x",
+      // IPv4-mapped / embedded IPv6 forms of private targets.
+      "http://[::ffff:127.0.0.1]/x",
+      "http://[::ffff:7f00:1]/x",
+      "http://[::ffff:169.254.169.254]/latest/meta-data",
+      "http://[::ffff:a00:1]/x",
+      "http://[::7f00:1]/x",
+      "http://[2002:7f00:1::]/x",
+      "http://[2001:0::1]/x",
       "file:///etc/passwd",
       "ftp://example.com/x",
     ]) {
@@ -150,6 +158,9 @@ describe("edge gateway (live HTTP)", () => {
 
     const raw = await fetch(`${base}/transcode?url=${encodeURIComponent(upstream)}&format=raw`);
     expect(await raw.text()).toContain("alert(1)"); // humans still get the original
+    // ...but as inert text, and any HTML surface is CSP-sandboxed (no script on this origin).
+    expect(raw.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+    expect(rendered.headers.get("content-security-policy")).toContain("sandbox");
 
     // Upstream failure surfaces as JSON with the right code.
     const fail = await fetch(`${base}/transcode?url=${encodeURIComponent(`http://127.0.0.1:${upstreamPort}/missing`)}`);
