@@ -115,7 +115,7 @@ fn render_with_ctx(
 
 fn render_reactive_node_ctx(n: &Node, scope: &Scope, phases: Option<&PhaseMap>) -> Result<String, ExprError> {
     let Node::Block(b) = n else {
-        return Ok(render_node(n, RenderCtx { env: Some(scope), phases }));
+        return Ok(render_node(n, RenderCtx { env: Some(scope), phases, registry: None }));
     };
 
     // SPEC 5: `when="expr"` hides the node when the expression is falsy. A
@@ -140,7 +140,7 @@ fn render_reactive_node_ctx(n: &Node, scope: &Scope, phases: Option<&PhaseMap>) 
         };
         if let Some(raw_each) = raw_each {
             let Some((item_name, index_name, expr)) = parse_each(&raw_each) else {
-                return Ok(render_node(n, RenderCtx { env: Some(scope), phases }));
+                return Ok(render_node(n, RenderCtx { env: Some(scope), phases, registry: None }));
             };
             let items = eval_raw(&expr, scope).unwrap_or(Literal::Null);
             let Literal::Arr(items) = items else { return Ok(String::new()) };
@@ -153,14 +153,14 @@ fn render_reactive_node_ctx(n: &Node, scope: &Scope, phases: Option<&PhaseMap>) 
                 inner.insert(index_name.clone(), Literal::Num(index as f64));
                 parts.push(render_node(
                     &Node::Block(clone),
-                    RenderCtx { env: Some(&inner), phases },
+                    RenderCtx { env: Some(&inner), phases, registry: None },
                 ));
             }
             return Ok(parts.join("\n"));
         }
     }
 
-    Ok(render_node(n, RenderCtx { env: Some(scope), phases }))
+    Ok(render_node(n, RenderCtx { env: Some(scope), phases, registry: None }))
 }
 
 /// Render a document with its state resolved and applied (SPEC 5/11).

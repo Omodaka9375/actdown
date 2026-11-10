@@ -276,7 +276,8 @@ pub fn render_markdown(md: &str, ctx: RenderCtx) -> String {
             let closing = match cf {
                 Some(c) => {
                     let marker = c.get(1).map(|m| m.as_str()).unwrap_or("");
-                    let (ch, open_len) = (fence.1, fence.2);
+                    let f = fence.as_ref().expect("fence is Some in this branch");
+                    let (ch, open_len) = (f.1, f.2);
                     marker.starts_with(ch)
                         && marker.chars().take_while(|&x| x == ch).count() >= open_len
                 }
@@ -359,7 +360,7 @@ pub fn render_markdown(md: &str, ctx: RenderCtx) -> String {
         flush_list(&mut out, &mut list, ctx);
         para.push(ln);
     }
-    if let Some((_lang, content)) = fence {
+    if let Some((_lang, _, _, content)) = fence {
         // Unterminated fence at EOF: no language class (matches the reference).
         out.push(format!("<pre><code>{}</code></pre>", esc(&content.join("\n"))));
     }
