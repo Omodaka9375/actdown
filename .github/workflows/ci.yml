@@ -26,7 +26,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: actdown-rs
-      - run: pnpm verify:rs
+      - run: cargo test --manifest-path actdown-rs/Cargo.toml
 
   wasm:
     runs-on: ubuntu-latest
