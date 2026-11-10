@@ -169,7 +169,7 @@ describe("edge gateway (live HTTP)", () => {
 
     // Guard is off in this deployment (allowPrivate); UI pages exist.
     const home = await fetch(base);
-    expect(await home.text()).toContain("htmldown edge");
+    expect(await home.text()).toContain("htmd edge");
   });
 
   it("refuses private targets when the guard is on", async () => {

@@ -6,7 +6,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use htmldown::{canonicalize, format, parse, render, render_reactive, to_json};
+use htmd::{canonicalize, format, parse, render, render_reactive, to_json};
 
 fn vectors_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("vectors")

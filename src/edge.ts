@@ -50,7 +50,7 @@ export interface EdgeOptions {
 const DEFAULTS = {
   fetchTimeoutMs: 10_000,
   maxBytes: 5 * 1024 * 1024,
-  userAgent: "htmldown-edge/0.1 (+https://github.com/htmldown)",
+  userAgent: "htmd-edge/0.1",
 };
 
 /**

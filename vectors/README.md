@@ -1,6 +1,6 @@
-# htmldown conformance vectors
+# htmd conformance vectors
 
-This directory is the conformance suite for htmldown draft 0.1 (SPEC 13).
+This directory is the conformance suite for htmd draft 0.1 (SPEC 13).
 Each vector is a minimal document plus the exact expected outputs of a
 conforming implementation. Vectors are stable: after release a vector is
 never edited, only added.

@@ -1,11 +1,12 @@
-# htmldown specification, draft 0.1
+# htmd specification, draft 0.1
 
 Status: DRAFT. This document is normative. The keywords MUST, MUST NOT,
 SHOULD, and MAY are to be read as in RFC 2119.
 
 ## 1. Overview
 
-htmldown (short form: hdm) is a markup language for documents that are
+htmd (HyperText Markdown, short form: hdm) is a markup language for
+documents that are
 read and written by both humans and autonomous agents. It is a strict
 superset of Markdown (CommonMark 0.31.2) with a block-extension mechanism
 called **hdm blocks**, a flat state model, a typed expression language,
@@ -14,7 +15,7 @@ and a capability-based action system.
 Design invariants:
 
 - INV-1: Every valid hdm document is a valid Markdown document. Renderers
-  that do not know htmldown MUST still render its prose content.
+  that do not know htmd MUST still render its prose content.
 - INV-2: The abstract syntax tree (AST) is the contract. All semantics are
   defined on the AST; the text form is one of several serializations.
 - INV-3: Canonicalization is total and idempotent. For any input, the

@@ -1,4 +1,7 @@
-# htmldown: an interactive markup language for agents and humans
+# htmd (HyperText Markdown): an interactive markup language for agents and humans
+
+The project is named htmd. Its compatible wire format retains the `hdm`
+short form, block prefix, AST header, and HTML data attributes.
 
 ## The problem
 
@@ -8,13 +11,13 @@ HTML was built for browsers and humans. Agents pay three taxes for it:
 2. **Ambiguity tax**: `<div class="btn-primary">` says nothing about intent.
 3. **Interactivity tax**: real behavior needs JS, which agents cannot safely write, read, or run.
 
-htmldown should be a language that is cheap to read, cheap to write,
+htmd should be a language that is cheap to read, cheap to write,
 unambiguous in meaning, and interactive without arbitrary code. One
 document serves both a human renderer and an agent reader.
 
 Design goals, in priority order:
 
-- G1: Markdown-native. A plain markdown file must be valid htmldown.
+- G1: Markdown-native. A plain markdown file must be valid htmd.
 - G2: Deterministic. Same document, same canonical bytes. Diffable, cacheable.
 - G3: Declarative interactivity. State, events, and actions, but no JS.
 - G4: Agent-first ergonomics: stable ids, semantic roles, schema validation,
@@ -78,15 +81,15 @@ Rules that make it agent-safe:
 - State is a flat typed map per document. Two blocks share state by binding
   to the same key. Scoping comes from nesting or explicit `scope=`.
 - Canonical form: the parser emits a sorted, normalized AST; the printer
-  re-emits canonical htmldown. `format()` is idempotent.
+  re-emits canonical htmd. `format()` is idempotent.
 
 ## Three solution paths
 
 ### Path A: "Markdown plus blocks" (conventional, adoption-first)
 
-A strict markdown superset. htmldown blocks are fenced code blocks with an
+A strict markdown superset. htmd blocks are fenced code blocks with an
 `hdm-<type>` info string. Unknown blocks render as plain code fences, so
-htmldown degrades gracefully in every existing markdown renderer.
+htmd degrades gracefully in every existing markdown renderer.
 
 - Parser: line-based, streaming, ~1-2k LOC.
 - Renderer: walks blocks, emits HTML or a native UI.
@@ -192,7 +195,7 @@ Build Path A now, Path C by design:
 3. Later: Level 2/3 reactivity, Rust/WASM port, and the edge transcoder as
    the deployment wedge.
 
-Rationale: Path A is the only path where htmldown is useful on day one in
+Rationale: Path A is the only path where htmd is useful on day one in
 every existing surface (GitHub, chat clients, static hosts), and the block
 grammar can be extended toward Path C without breaking it. Path B's tree
 form can return later as the machine serialization of the same AST, which

@@ -3,7 +3,7 @@ node_modules/
 
 # build output
 dist/
-htmldown-rs/target/
+htmd-rs/target/
 
 # misc
 npm-debug.log*

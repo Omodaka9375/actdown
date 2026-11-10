@@ -1,4 +1,5 @@
-//! htmldown: interactive markup for agents and humans (SPEC draft 0.1).
+//! htmd (HyperText Markdown): interactive markup for agents and humans
+//! (SPEC draft 0.1).
 //! Rust port of the TypeScript reference implementation; builds for
 //! `wasm32-unknown-unknown` for embedding in agent runtimes.
 

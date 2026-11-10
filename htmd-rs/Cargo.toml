@@ -1,5 +1,5 @@
 [package]
-name = "htmldown"
+name = "htmd"
 version = "0.1.0"
 edition = "2021"
 description = "Interactive markup language for agents and humans (spec draft 0.1) - Rust/WASM port"

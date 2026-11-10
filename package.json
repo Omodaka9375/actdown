@@ -1,7 +1,7 @@
 {
-  "name": "htmldown",
+  "name": "htmd",
   "version": "0.1.0",
-  "description": "Interactive markup language for agents and humans (spec draft 0.1)",
+  "description": "HyperText Markdown for agents and humans (spec draft 0.1)",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "verify": "node scripts/verify.mjs",
-    "verify:rs": "cargo test --manifest-path htmldown-rs/Cargo.toml",
+    "verify:rs": "cargo test --manifest-path htmd-rs/Cargo.toml",
     "edge": "node dist/serve.js"
   },
   "devDependencies": {
