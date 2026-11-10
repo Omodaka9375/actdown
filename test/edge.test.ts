@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { EdgeError, formatConversion, isPrivateHost, transcodeUrl, type EdgeOptions } from "../src/edge.js";
 import { createEdgeServer } from "../src/serve.js";
-import { createServer, type RequestListener, type Server } from "node:http";
+import { createServer, request, type RequestListener, type Server } from "node:http";
 import { AddressInfo } from "node:net";
 
 const PAGE = `<!doctype html>
@@ -226,6 +226,64 @@ describe("edge gateway (live HTTP)", () => {
     // Guard is off in this deployment (allowPrivate); UI pages exist.
     const home = await fetch(base);
     expect(await home.text()).toContain("actdown edge");
+  });
+
+  it("enforces rate limit, body cap, concurrency cap, and /healthz", async () => {
+    // Rate limit: fixed window per IP, third request refused.
+    const rateEdge = createEdgeServer({ rateLimit: 2, onRequest: () => {} });
+    servers.push(rateEdge);
+    const ratePort = await new Promise<number>((resolve) => {
+      rateEdge.listen(0, "127.0.0.1", () => resolve((rateEdge.address() as AddressInfo).port));
+    });
+    const rateBase = `http://127.0.0.1:${ratePort}`;
+    expect((await fetch(`${rateBase}/healthz`)).status).toBe(200);
+    expect((await fetch(`${rateBase}/healthz`)).status).toBe(200);
+    const limited = await fetch(`${rateBase}/healthz`);
+    expect(limited.status).toBe(429);
+    expect(((await limited.json()) as { code: string }).code).toBe("E_EDGE_RATE");
+
+    // Body cap: a GET declaring an oversized body is refused before routing.
+    const sizeEdge = createEdgeServer({ maxRequestBodyBytes: 8 });
+    servers.push(sizeEdge);
+    const sizePort = await new Promise<number>((resolve) => {
+      sizeEdge.listen(0, "127.0.0.1", () => resolve((sizeEdge.address() as AddressInfo).port));
+    });
+    const oversized = await new Promise<{ status: number; code: string }>((resolve, reject) => {
+      const req = request(
+        { host: "127.0.0.1", port: sizePort, path: "/healthz", method: "GET", headers: { "content-length": "64" } },
+        (r) => {
+          let body = "";
+          r.on("data", (c: Buffer) => {
+            body += c.toString();
+          });
+          r.on("end", () => resolve({ status: r.statusCode ?? 0, code: (JSON.parse(body) as { code: string }).code }));
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    expect(oversized.status).toBe(413);
+    expect(oversized.code).toBe("E_EDGE_TOO_LARGE");
+
+    // Concurrency cap: a slow upstream holds its slot; the next request 503s.
+    const slowUpstream = await listen((req, res) => {
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(PAGE);
+      }, 150);
+    });
+    const busyEdge = createEdgeServer({ allowPrivate: true, maxConcurrent: 1, onRequest: () => {} });
+    servers.push(busyEdge);
+    const busyPort = await new Promise<number>((resolve) => {
+      busyEdge.listen(0, "127.0.0.1", () => resolve((busyEdge.address() as AddressInfo).port));
+    });
+    const busyBase = `http://127.0.0.1:${busyPort}`;
+    const upstream = `http://127.0.0.1:${slowUpstream}/report`;
+    const first = fetch(`${busyBase}/transcode?url=${encodeURIComponent(upstream)}`);
+    const second = await fetch(`${busyBase}/transcode?url=${encodeURIComponent(upstream)}`);
+    expect(second.status).toBe(503);
+    expect(((await second.json()) as { code: string }).code).toBe("E_EDGE_BUSY");
+    expect((await first).status).toBe(200);
   });
 
   it("refuses private targets when the guard is on", async () => {    const edge = createEdgeServer({});

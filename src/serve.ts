@@ -5,8 +5,12 @@
  *   GET /                     dual-pane UI (form -> /view)
  *   GET /view?url=...         dual-pane page: rendered ad + canonical text
  *   GET /transcode?url=...    machine surface: ?format=canonical|ast|html|raw
+ *   GET /healthz              liveness probe (plain "ok")
  *
- * Errors are JSON: { code, message }. Zero dependencies: node:http + fetch.
+ * Limits (ServeOptions / env in main()): per-IP request rate (429
+ * E_EDGE_RATE), in-flight transcode cap (503 E_EDGE_BUSY), inbound body cap
+ * (413 E_EDGE_TOO_LARGE). Errors are JSON: { code, message }. Zero
+ * dependencies: node:http + fetch.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
@@ -90,19 +94,87 @@ function parseFormat(q: URLSearchParams): EdgeFormat {
 export interface ServeOptions extends EdgeOptions {
   /** Called per request for logging; default: silent. */
   onRequest?: (line: string) => void;
+  /**
+   * Max inbound request body bytes. The gateway is GET/HEAD only, so this is
+   * defensive (against oversized bodies on the shared origin). Default 1 MB.
+   */
+  maxRequestBodyBytes?: number;
+  /**
+   * Requests per minute per client IP (fixed window, socket address only,
+   * never X-Forwarded-For: behind a proxy all clients would share one
+   * bucket). 0 disables. Default 120.
+   */
+  rateLimit?: number;
+  /**
+   * Max in-flight upstream transcodes; excess requests get 503 E_EDGE_BUSY.
+   * Default 8.
+   */
+  maxConcurrent?: number;
+}
+
+/** Fixed-window per-IP rate limiter (dev-grade; a proxy makes all clients one IP). */
+function rateLimiter(limit: number): (ip: string) => boolean {
+  const WINDOW_MS = 60_000;
+  const hits = new Map<string, { windowStart: number; count: number }>();
+  return (ip: string): boolean => {
+    if (limit <= 0) return false;
+    const now = Date.now();
+    const entry = hits.get(ip);
+    if (entry === undefined || now - entry.windowStart >= WINDOW_MS) {
+      // Opportunistic pruning keeps the map bounded under IP churn.
+      if (hits.size > 1024) {
+        for (const [k, v] of hits) {
+          if (now - v.windowStart >= WINDOW_MS) hits.delete(k);
+        }
+      }
+      hits.set(ip, { windowStart: now, count: 1 });
+      return false;
+    }
+    entry.count += 1;
+    return entry.count > limit;
+  };
 }
 
 export function createEdgeServer(opts: ServeOptions = {}): Server {
   const log = opts.onRequest ?? (() => {});
+  const maxBody = opts.maxRequestBodyBytes ?? 1024 * 1024;
+  const tooManyRequests = rateLimiter(opts.rateLimit ?? 120);
+  let inFlight = 0;
+  const maxConcurrent = opts.maxConcurrent ?? 8;
+  /** Acquire a concurrency slot for an upstream transcode. */
+  const slot = (): boolean => {
+    if (inFlight >= maxConcurrent) return false;
+    inFlight += 1;
+    return true;
+  };
   return createServer((req: IncomingMessage, res: ServerResponse) => {
     const u = new URL(req.url ?? "/", "http://localhost");
+    res.on("finish", () => {
+      log(`${new Date().toISOString()} ${req.method} ${u.pathname}${u.search} -> ${res.statusCode}`);
+    });
     void (async () => {
+      // Inbound size cap: GET/HEAD should not carry a body; reject any that
+      // declares one larger than allowed (defensive, before any routing work).
+      const declared = Number(req.headers["content-length"] ?? "0");
+      if (Number.isFinite(declared) && declared > maxBody) {
+        send(res, 413, JSON.stringify({ code: "E_EDGE_TOO_LARGE", message: `request body exceeds ${maxBody} bytes` }), "application/json; charset=utf-8");
+        return;
+      }
+      const ip = req.socket.remoteAddress ?? "unknown";
+      if (tooManyRequests(ip)) {
+        send(res, 429, JSON.stringify({ code: "E_EDGE_RATE", message: "rate limit exceeded, slow down" }), "application/json; charset=utf-8");
+        return;
+      }
       if (req.method !== "GET" && req.method !== "HEAD") {
         send(res, 405, JSON.stringify({ code: "E_EDGE_METHOD", message: "GET/HEAD only" }), "application/json; charset=utf-8");
         return;
       }
       if (u.pathname === "/" && u.searchParams.has("url")) u.pathname = "/view";
       switch (u.pathname) {
+        case "/healthz": {
+          send(res, 200, "ok", "text/plain; charset=utf-8");
+          return;
+        }
         case "/": {
           send(res, 200, viewPage(null), "text/html; charset=utf-8");
           return;
@@ -112,6 +184,10 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
           // The canonical pane is fetched server-side so failures surface as
           // a readable error page, not a broken iframe.
           if (target !== null) {
+            if (!slot()) {
+              send(res, 503, JSON.stringify({ code: "E_EDGE_BUSY", message: "too many concurrent transcodes" }), "application/json; charset=utf-8");
+              return;
+            }
             try {
               await transcodeUrl(target, opts);
             } catch (err: unknown) {
@@ -120,6 +196,8 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
               send(res, err instanceof EdgeError ? err.status : 500, `<!doctype html><html><head><meta charset="utf-8"><title>edge error</title></head>
 <body style="font:15px/1.5 system-ui,sans-serif;padding:2rem"><h1>${esc(code)}</h1><p>${msg}</p><p><a href="/">back</a></p></body></html>`, "text/html; charset=utf-8");
               return;
+            } finally {
+              inFlight -= 1;
             }
           }
           send(res, 200, viewPage(target), "text/html; charset=utf-8");
@@ -132,10 +210,18 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
             return;
           }
           const format = parseFormat(u.searchParams);
-          const result = await transcodeUrl(target, opts);
-          const { body, contentType } = formatConversion(result, format);
-          log(`${new Date().toISOString()} ${format} ${result.source}`);
-          send(res, 200, body, contentType);
+          if (!slot()) {
+            send(res, 503, JSON.stringify({ code: "E_EDGE_BUSY", message: "too many concurrent transcodes" }), "application/json; charset=utf-8");
+            return;
+          }
+          try {
+            const result = await transcodeUrl(target, opts);
+            const { body, contentType } = formatConversion(result, format);
+            log(`${new Date().toISOString()} format=${format} source=${result.source}`);
+            send(res, 200, body, contentType);
+          } finally {
+            inFlight -= 1;
+          }
           return;
         }
         default: {
@@ -146,12 +232,26 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
   });
 }
 
-/** Entry point: node dist/serve.js (PORT env or 8787). */
+/** Entry point: node dist/serve.js (PORT env or 8787, HOST env or 127.0.0.1). */
 function main(): void {
   const port = Number(process.env.PORT ?? 8787);
-  const server = createEdgeServer({ allowPrivate: process.env.EDGE_ALLOW_PRIVATE === "1" });
-  server.listen(port, () => {
-    process.stdout.write(`actdown edge listening on http://localhost:${port}\n`);
+  // Explicit listen address, loopback by default: a dev tool must not expose
+  // itself on all interfaces unless the operator asks for it (HOST=0.0.0.0).
+  // Loopback doubles as the trusted-client boundary; anything wider needs the
+  // auth story in README (status).
+  const host = process.env.HOST ?? "127.0.0.1";
+  const rateLimit = process.env.EDGE_RATE_LIMIT === undefined ? undefined : Number(process.env.EDGE_RATE_LIMIT);
+  const server = createEdgeServer({
+    allowPrivate: process.env.EDGE_ALLOW_PRIVATE === "1",
+    rateLimit: Number.isFinite(rateLimit) ? rateLimit : undefined,
+    onRequest: (line) => {
+      process.stdout.write(`${line}\n`);
+    },
+  });
+  server.listen(port, host, () => {
+    const addr = server.address();
+    const shown = addr !== null && typeof addr === "object" ? `${addr.address}:${addr.port}` : `${host}:${port}`;
+    process.stdout.write(`actdown edge listening on http://${shown} (health: /healthz)\n`);
   });
 }
 

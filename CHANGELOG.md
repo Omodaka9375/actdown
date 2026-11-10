@@ -16,6 +16,12 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   `E_EDGE_FETCH`. The resolver is injectable (`EdgeOptions.resolver`) for
   tests and policy. A residual connect-time re-resolution window remains;
   full DNS-rebinding defense still needs restricted network egress.
+- Gateway limits and operations: explicit listen address (`HOST`, loopback
+  by default), per-IP request rate (`EDGE_RATE_LIMIT`, `429 E_EDGE_RATE`),
+  in-flight transcode cap (`503 E_EDGE_BUSY`), inbound body cap (`413
+  E_EDGE_TOO_LARGE`), per-request logging, and a `/healthz` probe.
+- CI: test matrix over Node 20/22/24, a `pnpm audit --prod` job, and weekly
+  Dependabot updates for npm, GitHub Actions, and cargo.
 
 - Markdown superset with `ad-*` fenced blocks: state, data, action, form,
   table, image, link, chart, region (level 1), bindings, `when=`/`each=`

@@ -297,7 +297,7 @@ Run it explicitly when needed:
 
 ```sh
 pnpm build
-pnpm edge            # listens on port 8787; override with PORT
+pnpm edge            # 127.0.0.1:8787; override with PORT and HOST
 ```
 
 Then request a conversion, for example:
@@ -312,11 +312,20 @@ Then request a conversion, for example:
 
 Formats are canonical ad (`text/x-ad`, the default), JSON AST, rendered
 HTML, and the original source as inert `text/plain`. `/view` is the
-dual-pane inspection UI. Errors are JSON `{ code, message }`, with codes
-such as `E_EDGE_FETCH`, `E_EDGE_TIMEOUT`, and `E_EDGE_SIZE`.
+dual-pane inspection UI, `/healthz` is a liveness probe. Errors are JSON
+`{ code, message }`, with codes such as `E_EDGE_FETCH`, `E_EDGE_TIMEOUT`,
+and `E_EDGE_SIZE`.
+
+The gateway binds to `127.0.0.1` by default (set `HOST` to widen it
+deliberately) and enforces limits: per-IP request rate (`EDGE_RATE_LIMIT`
+requests per minute, default 120, `429 E_EDGE_RATE`), an in-flight
+transcode cap (`503 E_EDGE_BUSY`), and an inbound body cap (`413
+E_EDGE_TOO_LARGE`). Every request is logged to stdout as one line.
 
 The SSRF guard refuses literal private, loopback, link-local, and mapped
-IPv6 targets. `EDGE_ALLOW_PRIVATE=1` disables that guard and should only be
+IPv6 targets, and additionally refuses hostnames that RESOLVE to such
+addresses (checked before the initial request and before every redirect
+hop). `EDGE_ALLOW_PRIVATE=1` disables that guard and should only be
 used for controlled local fixtures, never for an exposed gateway.
 
 ## Playground
@@ -407,12 +416,16 @@ Before exposing the gateway beyond a trusted environment, add:
   each redirect hop) is resolved and checked before it is fetched, but the
   fetch itself re-resolves at connect time, so a full defense still needs
   restricted network egress or a connection pinned to the checked address.
-- Authentication or an explicit trusted-client boundary, rate and
-  concurrency limits, request-size limits, and an explicit listen address.
+- Authentication for untrusted networks: the gateway now binds to loopback
+  by default (`HOST` widens it deliberately) and enforces a per-IP request
+  rate, an in-flight transcode cap, and an inbound body cap; real auth for
+  a wider trusted-client boundary is still open.
 - Fuzzing and property-based parser tests, adversarial redirect tests, and
   real-browser tests for the DOM adapter.
-- CI across supported Node and browser versions, dependency and release
-  policies, and operational logging/monitoring.
+- Broader CI and operations: the test matrix now covers Node 20/22/24 with
+  a dependency-audit job, weekly Dependabot updates, and per-request
+  gateway logging plus `/healthz`; a browser-matrix job and a release
+  workflow are still open.
 
 Feature work still open includes `ad-include` and some form-control
 rendering. Rust capabilities are synchronous
