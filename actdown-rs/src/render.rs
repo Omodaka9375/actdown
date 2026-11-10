@@ -355,7 +355,7 @@ fn parse_opts(s: &str) -> Vec<(String, String)> {
     }
     // Split on top-level commas only: brackets and quotes may nest commas
     // (options=["a", "b"], pattern="[0-9]{2},[a-z]{2}").
-    let mut push = |map: &mut Vec<(String, String)>, part: &str| match part.find('=') {
+    let push = |map: &mut Vec<(String, String)>, part: &str| match part.find('=') {
         None => map.push((part.trim().to_string(), String::new())),
         Some(eq) => map.push((part[..eq].trim().to_string(), part[eq + 1..].trim().to_string())),
     };

@@ -6,6 +6,7 @@
 pub mod canonical;
 pub mod diag;
 pub mod expr;
+pub mod include;
 pub mod literal;
 pub mod parse;
 pub mod react;
@@ -18,6 +19,7 @@ pub mod types;
 pub use canonical::{canonicalize, format, print, print_block, to_json};
 pub use diag::ParseError;
 pub use expr::{display, eval_expr, evaluate, parse_expr, ExprError};
+pub use include::{inline_includes, InlineOptions};
 pub use literal::{parse_field, print_literal};
 pub use parse::parse;
 pub use react::{compute_state, render_reactive, render_with_state};

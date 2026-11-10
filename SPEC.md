@@ -417,7 +417,7 @@ skip(<level>)` per vector; a run is conforming when nothing reports `fail`.
 
 Parse errors: `E_DUPLICATE_KEY, E_DUP_ID, E_BAD_ROLE, E_BAD_ID, E_BAD_INFO,
 E_UNTERMINATED_STRING, E_BAD_LITERAL, E_BAD_FIELD, E_MULTI_EVENT,
-E_INCLUDE_CYCLE`.
+E_INCLUDE_CYCLE, E_INCLUDE_UNRESOLVED`.
 Render errors: `E_CAP_MISSING, E_EXPR_STEP, E_EXPR_DEPTH, E_BIND_UNKNOWN`.
 Parse errors demote the offending block to a foreign block; the document
 MUST still render. Render errors affect one node, never the document.

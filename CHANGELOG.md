@@ -28,6 +28,14 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   scalar arrays as one column). Mixed shapes render no table.
 - `ad-list` (level 1) now renders `<ul>`/`<ol>` instead of a generic
   section: from body list markers, the `items` field, or `ordered: true`.
+- `ad-include` (SPEC 4.5) is now fully supported in both implementations:
+  the AST stores the reference, and an explicit inlining pass
+  (`inlineIncludes(doc, { loader })` in TS, `inline_includes` in Rust;
+  `--inline` on the CLI's `ast`/`fmt`/`render`) splices referenced
+  documents at the include position. Cycles are `E_INCLUDE_CYCLE`
+  (path-based, diamonds allowed), unresolvable srcs are
+  `E_INCLUDE_UNRESOLVED`, and `cap:` sources stay verbatim for the host.
+  The loader is injected, so hosts control which paths a document may read.
 - Conformance vector `0009-chart-and-list` locks both behaviors byte-exact
   across the TypeScript and Rust implementations.
 - `ad-form` controls now render the SPEC 4.3 validation options (`min=`,

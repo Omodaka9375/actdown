@@ -211,6 +211,7 @@ run locally via `pnpm cli`). `-` or no file reads stdin.
 pnpm cli check   examples/mcp-approval/approval.ad   # diagnostics, exit 1 on any
 pnpm cli fmt     doc.ad                             # canonical form (diffable)
 pnpm cli ast     doc.ad                             # JSON AST
+pnpm cli ast     doc.ad --inline                    # AST with ad-include spliced
 pnpm cli render  doc.ad                             # static HTML
 pnpm cli render  doc.ad --reactive                  # HTML with state applied
 pnpm cli html2ad page.html                          # HTML -> canonical ad
@@ -433,8 +434,15 @@ Before exposing the gateway beyond a trusted environment, add:
   gateway logging plus `/healthz`; a browser-matrix job and a release
   workflow are still open.
 
-Feature work still open includes `ad-include` and some form-control
-rendering. Rust capabilities are synchronous
+Composition is an explicit pass, not an implicit one: `ad-include` blocks
+store their `src` reference in the AST (SPEC 4.5), and `--inline` on
+`ast` / `fmt` / `render` splices the referenced documents at that position.
+Cycle protection is `E_INCLUDE_CYCLE`; a src that cannot be loaded is
+`E_INCLUDE_UNRESOLVED`; `cap:` sources stay verbatim for the host to
+resolve. Include paths resolve against the entry document's directory.
+
+Feature work still open includes real-browser tests for the DOM adapter and
+Rust-side review lints. Rust capabilities are synchronous
 while TypeScript capabilities may be asynchronous, so async phase behavior
 is not identical. Do not treat capability names as a security sandbox for
 host functions: capability implementations themselves remain trusted host

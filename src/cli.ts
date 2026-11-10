@@ -10,16 +10,19 @@
  *
  * "-" reads stdin. Zero dependencies beyond Node 20.
  */
+import { dirname, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import {
   parse,
   canonicalize,
   format,
+  print,
   toJSON,
   lint,
   render,
   renderReactive,
   html2ad,
+  inlineIncludes,
 } from "./index.js";
 
 const USAGE = `actdown - actionable markdown for agents and humans
@@ -68,6 +71,17 @@ try {
 const docResult = parse(input);
 const doc = canonicalize(docResult.doc);
 
+// SPEC 4.5: inlining is an explicit pass (--inline). Include paths resolve
+// against the entry document's directory (cwd for stdin).
+function inlinedDoc() {
+  const baseDir = file && file !== "-" ? dirname(resolve(file)) : process.cwd();
+  return canonicalize(
+    inlineIncludes(docResult.doc, {
+      loader: (src) => readFileSync(resolve(baseDir, src), "utf8"),
+    }),
+  );
+}
+
 switch (cmd) {
   case "check": {
     for (const d of docResult.diagnostics) {
@@ -88,16 +102,22 @@ switch (cmd) {
     break;
   }
   case "fmt":
+    if (flags.has("--inline")) {
+      process.stdout.write(print(canonicalize(inlinedDoc())) + "\n");
+      break;
+    }
     process.stdout.write(format(input) + "\n");
     break;
   case "ast":
-    process.stdout.write(toJSON(doc) + "\n");
+    process.stdout.write(toJSON(flags.has("--inline") ? inlinedDoc() : doc) + "\n");
     break;
-  case "render":
+  case "render": {
+    const target = flags.has("--inline") ? canonicalize(inlinedDoc()) : doc;
     process.stdout.write(
-      (flags.has("--reactive") ? renderReactive(doc) : render(doc)) + "\n",
+      (flags.has("--reactive") ? renderReactive(target) : render(target)) + "\n",
     );
     break;
+  }
   case "html2ad":
     process.stdout.write(html2ad(input, { source: file ?? "stdin" }) + "\n");
     break;
