@@ -1,4 +1,4 @@
-# MCP approval flow: the killer demo
+# MCP approval flow demo
 
 An agent-authored deploy approval document, a host that grants exactly one
 capability, and the proof that the refusal path is also correct.
