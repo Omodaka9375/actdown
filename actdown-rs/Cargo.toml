@@ -1,9 +1,9 @@
 [package]
-name = "htmd"
+name = "actdown"
 version = "0.1.0"
 edition = "2021"
-description = "Interactive markup language for agents and humans (spec draft 0.1) - Rust/WASM port"
-license = "MIT"
+description = "Actionable Markdown for agents and humans (spec draft 0.1) - Rust/WASM port"
+license = "Apache-2.0"
 
 [lib]
 crate-type = ["rlib", "cdylib"]

@@ -169,8 +169,8 @@ impl<'a> Runtime<'a> {
 
     /**
      * Fire a block's `on:<event>` expression with `$name` payload available.
-     * A plain `hdm-action` (no `on:` expression) fires its `name` capability
-     * with its `args` field (SPEC 4.2); a plain `hdm-form` fires its `action`
+     * A plain `ad-action` (no `on:` expression) fires its `name` capability
+     * with its `args` field (SPEC 4.2); a plain `ad-form` fires its `action`
      * capability with the submitted fields (SPEC 4.3).
      */
     pub fn fire(
@@ -253,9 +253,9 @@ impl<'a> Runtime<'a> {
 mod tests {
     use super::*;
 
-    const COUNTER: &str = "# Counter\n\n```hdm-state\ncount: 0\n```\n\n```hdm-action?name=counter.inc&role=primary\nid: inc\n---\nAdd one ({count})\n```\n\nCount is {count}.\n";
+    const COUNTER: &str = "# Counter\n\n```ad-state\ncount: 0\n```\n\n```ad-action?name=counter.inc&role=primary\nid: inc\n---\nAdd one ({count})\n```\n\nCount is {count}.\n";
 
-    const SAVE: &str = "# Save\n\n```hdm-action?name=doc.save\nid: save\n---\nSave now\n```\n\n```hdm-region\nfor: save\nphase: failure\n---\nCould not save.\n```\n";
+    const SAVE: &str = "# Save\n\n```ad-action?name=doc.save\nid: save\n---\nSave now\n```\n\n```ad-region\nfor: save\nphase: failure\n---\nCould not save.\n```\n";
 
     fn doc(src: &str) -> Doc {
         crate::parse::parse(src).doc
@@ -277,7 +277,7 @@ mod tests {
         rt.fire("inc", "click", None).unwrap();
         assert_eq!(rt.state().get("count"), Some(&Literal::Num(1.0)));
         let html = rt.html().unwrap();
-        assert!(html.contains("data-hdm-bind=\"count\">1</span>"), "{}", html);
+        assert!(html.contains("data-ad-bind=\"count\">1</span>"), "{}", html);
     }
 
     #[test]
@@ -288,13 +288,13 @@ mod tests {
         patch.insert("count".into(), Literal::Num(7.0));
         rt.set(patch);
         let html = rt.html().unwrap();
-        assert!(html.contains("data-hdm-bind=\"count\">7</span>"), "{}", html);
+        assert!(html.contains("data-ad-bind=\"count\">7</span>"), "{}", html);
     }
 
     #[test]
     fn on_expressions_see_payload_and_block_attrs() {
         // on:click=cap.send("echo.set", {value: $value})
-        let src = "```hdm-action?name=echo.set&on:click=cap.send(\"echo.set\", {value: $value})\nid: echo\n---\nEcho\n```";
+        let src = "```ad-action?name=echo.set&on:click=cap.send(\"echo.set\", {value: $value})\nid: echo\n---\nEcho\n```";
         let caps = CapabilityRegistry::new().grant("echo.set", |args, _state| {
             let value = match args {
                 Literal::Obj(entries) => entries.get("value").cloned().unwrap_or(Literal::Null),
@@ -330,13 +330,13 @@ mod tests {
         assert_eq!(rt.phases().get("save").map(String::as_str), Some("failure"));
         let html = rt.html().unwrap();
         assert!(html.contains("Could not save."), "{}", html);
-        assert!(html.contains("data-hdm-phase=\"failure\""), "{}", html);
-        assert!(!html.contains("data-hdm-phase=\"failure\" hidden"), "{}", html);
+        assert!(html.contains("data-ad-phase=\"failure\""), "{}", html);
+        assert!(!html.contains("data-ad-phase=\"failure\" hidden"), "{}", html);
     }
 
     #[test]
     fn form_submit_routes_to_action_with_fields() {
-        let src = "```hdm-form?id=contact&action=cap:contact-form@v1\nemail: input(email, required)\non:submit: cap.send(action, $fields)\n```";
+        let src = "```ad-form?id=contact&action=cap:contact-form@v1\nemail: input(email, required)\non:submit: cap.send(action, $fields)\n```";
         let caps = CapabilityRegistry::new().grant("cap:contact-form@v1", |args, _state| {
             let mut patch = Scope::new();
             let email = match args {

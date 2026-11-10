@@ -1,12 +1,12 @@
 /**
  * Edge transcoder core (DESIGN.md, architecture 3): fetch a URL, downconvert
- * the HTML to canonical hdm for agents, keep the original for humans. The
+ * the HTML to canonical ad for agents, keep the original for humans. The
  * HTTP shell lives in serve.ts; this module is transport-free so it is
  * unit-testable with an injected fetcher.
  */
 import { canonicalize, print, toJSON } from "./canonical.js";
 import { renderReactive } from "./react.js";
-import { htmlToDoc } from "./html2hdm.js";
+import { htmlToDoc } from "./html2ad.js";
 import type { Doc } from "./types.js";
 
 export type EdgeErrorCode =
@@ -50,7 +50,7 @@ export interface EdgeOptions {
 const DEFAULTS = {
   fetchTimeoutMs: 10_000,
   maxBytes: 5 * 1024 * 1024,
-  userAgent: "htmd-edge/0.1",
+  userAgent: "actdown-edge/0.1",
 };
 
 /**
@@ -163,7 +163,7 @@ async function readCapped(
 export interface TranscodeResult {
   /** The final URL after redirects. */
   source: string;
-  /** Canonical hdm text (DOW-3). */
+  /** Canonical ad text (DOW-3). */
   canonical: string;
   doc: Doc;
   /** Audit notes from the downconverter (DOW-2). */
@@ -173,7 +173,7 @@ export interface TranscodeResult {
 }
 
 /**
- * Fetch a page and downconvert it to canonical hdm. Checks response.ok
+ * Fetch a page and downconvert it to canonical ad. Checks response.ok
  * (upstream errors are data, not success), enforces the byte cap and
  * timeout, and re-checks the SSRF guard after redirects.
  */
@@ -246,6 +246,6 @@ export function formatConversion(result: TranscodeResult, format: EdgeFormat): {
       return { body: result.html, contentType: "text/plain; charset=utf-8" };
     case "canonical":
     default:
-      return { body: result.canonical, contentType: "text/x-hdm; charset=utf-8" };
+      return { body: result.canonical, contentType: "text/x-ad; charset=utf-8" };
   }
 }

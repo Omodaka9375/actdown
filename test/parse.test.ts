@@ -21,7 +21,7 @@ function firstForeign(src: string): ForeignNode {
 
 describe("literal typing (SPEC 4.1)", () => {
   it("types numbers, keywords, bare strings, quoted strings, arrays, objects", () => {
-    const b = firstBlock(fence("hdm-state", [
+    const b = firstBlock(fence("ad-state", [
       "count: 0",
       "price: 129.50",
       "flag: true",
@@ -44,52 +44,52 @@ describe("literal typing (SPEC 4.1)", () => {
   });
 
   it("folds continuation lines with a single space", () => {
-    const b = firstBlock(fence("hdm-text", "body: this is a\n  long folded value"));
+    const b = firstBlock(fence("ad-text", "body: this is a\n  long folded value"));
     expect(b.fields.body).toBe("this is a long folded value");
   });
 
   it("unescapes bare values", () => {
-    const b = firstBlock(fence("hdm-text", "msg: line1\\nline2 \\\\ end"));
+    const b = firstBlock(fence("ad-text", "msg: line1\\nline2 \\\\ end"));
     expect(b.fields.msg).toBe("line1\nline2 \\ end");
   });
 
   it("stores non-JSON braces as expressions", () => {
-    const b = firstBlock(fence("hdm-region", "when: {count > 0}"));
+    const b = firstBlock(fence("ad-region", "when: {count > 0}"));
     expect(b.fields).toEqual({ when: { kind: "expr", raw: "count > 0" } });
   });
 });
 
 describe("block structure", () => {
   it("reads id and role from info attrs or body fields", () => {
-    const a = firstBlock(fence("hdm-action?name=cart.add&role=primary&on:click", "args: {}\n---\nGo"));
+    const a = firstBlock(fence("ad-action?name=cart.add&role=primary&on:click", "args: {}\n---\nGo"));
     expect(a.id).toBe("");
     expect(a.role).toBe("primary");
     expect(a.attrs).toEqual({ name: "cart.add", "on:click": "" });
     expect(a.body).toBe("Go");
-    const b = firstBlock(fence("hdm-region", "id: contact\nrole: form"));
+    const b = firstBlock(fence("ad-region", "id: contact\nrole: form"));
     expect(b.id).toBe("contact");
     expect(b.role).toBe("form");
   });
 
   it("rejects multiple trigger events", () => {
-    const f = firstForeign(fence("hdm-action?on:click&on:load", "x: 1"));
+    const f = firstForeign(fence("ad-action?on:click&on:load", "x: 1"));
     expect(f.diagnostic.code).toBe("E_MULTI_EVENT");
   });
 
   it("rejects unknown roles but allows x- prefixed ones", () => {
-    expect(firstForeign(fence("hdm-region", "role: wizard")).diagnostic.code).toBe("E_BAD_ROLE");
-    expect(firstBlock(fence("hdm-region", "role: x-magic")).role).toBe("x-magic");
+    expect(firstForeign(fence("ad-region", "role: wizard")).diagnostic.code).toBe("E_BAD_ROLE");
+    expect(firstBlock(fence("ad-region", "role: x-magic")).role).toBe("x-magic");
   });
 
   it("demotes a block with a duplicate field key", () => {
-    const f = firstForeign(fence("hdm-state", "count: 0\ncount: 1"));
+    const f = firstForeign(fence("ad-state", "count: 0\ncount: 1"));
     expect(f.diagnostic.code).toBe("E_DUPLICATE_KEY");
     expect(f.raw).toContain("count: 1");
   });
 
   it("demotes the second block on duplicate explicit ids", () => {
     const { doc, diagnostics } = parse(
-      fence("hdm-state", "id: dup\na: 1") + fence("hdm-state", "id: dup\nb: 2"),
+      fence("ad-state", "id: dup\na: 1") + fence("ad-state", "id: dup\nb: 2"),
     );
     expect(diagnostics.map((d) => d.code)).toEqual(["E_DUP_ID"]);
     const second = doc.nodes[1]!;
@@ -98,10 +98,10 @@ describe("block structure", () => {
 });
 
 describe("foreign blocks and prose (INV-1)", () => {
-  it("preserves unknown hdm types verbatim", () => {
-    const f = firstForeign(fence("hdm-widget", "mystery: true"));
+  it("preserves unknown ad types verbatim", () => {
+    const f = firstForeign(fence("ad-widget", "mystery: true"));
     expect(f.type).toBe("widget");
-    expect(f.raw).toContain("```hdm-widget");
+    expect(f.raw).toContain("```ad-widget");
   });
 
   it("keeps ordinary fenced code blocks as prose", () => {
@@ -110,32 +110,32 @@ describe("foreign blocks and prose (INV-1)", () => {
   });
 
   it("normalizes CRLF", () => {
-    const b = firstBlock("```hdm-state\r\ncount: 0\r\n```\r\n");
+    const b = firstBlock("```ad-state\r\ncount: 0\r\n```\r\n");
     expect(b.fields.count).toBe(0);
   });
 });
 
 describe("generated ids and canonical form (SPEC 2.3, 10)", () => {
   it("generates a stable id from canonical block bytes", () => {
-    const a = canonicalize(parse(fence("hdm-state", "count: 0")).doc).nodes[0] as BlockNode;
-    const again = canonicalize(parse(fence("hdm-state", "count: 0")).doc).nodes[0] as BlockNode;
+    const a = canonicalize(parse(fence("ad-state", "count: 0")).doc).nodes[0] as BlockNode;
+    const again = canonicalize(parse(fence("ad-state", "count: 0")).doc).nodes[0] as BlockNode;
     expect(a.id).toMatch(/^h[0-9a-f]{10}$/);
     expect(a.id).toBe(again.id);
   });
 
   it("format is idempotent (INV-3)", () => {
     const messy = "# Title\r\n\r\nSome prose with trailing spaces   \n\n" +
-      fence("hdm-action?name=cart.add&role=primary&on:click", "args: { \"sku\": \"oven\" }\n---\nAdd to cart") +
-      "\n" + fence("hdm-state", "count: 0\n   continued value");
+      fence("ad-action?name=cart.add&role=primary&on:click", "args: { \"sku\": \"oven\" }\n---\nAdd to cart") +
+      "\n" + fence("ad-state", "count: 0\n   continued value");
     const once = format(messy);
     expect(format(once)).toBe(once);
     expect(once).toContain("id: h");
   });
 
   it("emits canonical field order and on: attrs last", () => {
-    const once = format(fence("hdm-action?zeta=1&on:click&alpha=2&role=primary", "z: 1\na: 2"));
+    const once = format(fence("ad-action?zeta=1&on:click&alpha=2&role=primary", "z: 1\na: 2"));
     const lines = once.split("\n");
-    expect(lines[0]).toBe("```hdm-action?alpha=2&zeta=1&on:click");
+    expect(lines[0]).toBe("```ad-action?alpha=2&zeta=1&on:click");
     expect(lines[1]).toMatch(/^id: h[0-9a-f]{10}$/);
     expect(lines[2]).toBe("role: primary");
     expect(lines[3]).toBe("a: 2");

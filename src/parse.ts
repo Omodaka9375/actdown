@@ -25,7 +25,7 @@ const KNOWN_TYPES = new Set([
 ]);
 
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})[ \t]*(.*)$/;
-const HDM_INFO = /^hdm-([a-z][a-z0-9-]*)(\?(.*))?$/;
+const AD_INFO = /^ad-([a-z][a-z0-9-]*)(\?(.*))?$/;
 
 interface FenceRef {
   /** Index of the closing fence line, or lines.length when unclosed. */
@@ -69,12 +69,12 @@ export function parse(input: string): ParseResult {
       i += 1;
       continue;
     }
-    const m = HDM_INFO.exec(f.info);
-    const isHdm = f.backtick && m !== null;
+    const m = AD_INFO.exec(f.info);
+    const isAd = f.backtick && m !== null;
     const unclosed = f.end >= lines.length;
     const last = unclosed ? lines.length - 1 : f.end;
-    if (!isHdm || m === null) {
-      // Not an hdm block: preserve verbatim as prose (INV-1).
+    if (!isAd || m === null) {
+      // Not an ad block: preserve verbatim as prose (INV-1).
       for (let k = i; k <= last; k += 1) prose.push(lines[k]!);
       i = f.end + 1;
       continue;
@@ -116,7 +116,7 @@ export function parse(input: string): ParseResult {
     i = f.end + 1;
   }
   flushProse();
-  return { doc: { hdm: "0.1", nodes }, diagnostics };
+  return { doc: { ad: "0.1", nodes }, diagnostics };
 }
 
 function parseBlock(

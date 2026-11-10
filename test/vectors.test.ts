@@ -7,7 +7,7 @@ import { canonicalize, format, parse, render, renderReactive, toJSON } from "../
 const vectorsRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "vectors");
 const UPDATE = process.env.UPDATE_GOLDENS === "1";
 
-const vectorDirs = existsSync(vectorsRoot) ? readdirSync(vectorsRoot).filter((d) => existsSync(join(vectorsRoot, d, "input.hdm"))) : [];
+const vectorDirs = existsSync(vectorsRoot) ? readdirSync(vectorsRoot).filter((d) => existsSync(join(vectorsRoot, d, "input.ad"))) : [];
 
 /** One manifest entry (SPEC 13): level, human description, expected goldens. */
 interface VectorEntry {
@@ -67,7 +67,7 @@ describe.runIf(vectorDirs.length > 0)("conformance vectors (SPEC 13)", () => {
     const entry = manifest[name];
     it.runIf(entry !== undefined)(`vector ${name} (level ${entry?.level})`, () => {
       const dir = join(vectorsRoot, name);
-      const input = readFileSync(join(dir, "input.hdm"), "utf8");
+      const input = readFileSync(join(dir, "input.ad"), "utf8");
 
       const { doc } = parse(input);
       const cdoc = canonicalize(doc);
@@ -76,7 +76,7 @@ describe.runIf(vectorDirs.length > 0)("conformance vectors (SPEC 13)", () => {
 
       if (UPDATE) {
         writeFileSync(join(dir, "ast.json"), ast);
-        writeFileSync(join(dir, "canonical.hdm"), canonical);
+        writeFileSync(join(dir, "canonical.ad"), canonical);
         writeFileSync(join(dir, "html.html"), render(cdoc) + "\n");
         writeFileSync(join(dir, "reactive.html"), renderReactive(cdoc) + "\n");
         return;
@@ -86,7 +86,7 @@ describe.runIf(vectorDirs.length > 0)("conformance vectors (SPEC 13)", () => {
       const golden = (file: string): string => readFileSync(join(dir, file), "utf8");
       for (const g of entry?.goldens ?? []) {
         if (g === "ast.json") expect(ast).toBe(golden(g));
-        else if (g === "canonical.hdm") {
+        else if (g === "canonical.ad") {
           expect(canonical).toBe(golden(g));
           // INV-3: canonicalization is idempotent.
           expect(format(canonical)).toBe(canonical);

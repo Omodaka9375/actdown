@@ -27,6 +27,6 @@ export {
   type TranscodeResult,
   type EdgeErrorCode,
 } from "./edge.js";
-export { html2hdm, htmlToDoc, type Html2HdmOptions, type Conversion } from "./html2hdm.js";
+export { html2ad, htmlToDoc, type Html2AdOptions, type Conversion } from "./html2ad.js";
 export { parseHtml, textOf, type HtmlNode } from "./htmlparse.js";
 export * from "./types.js";

@@ -61,8 +61,8 @@ fn attr_value(v: &AttrValue) -> String {
 
 fn data_attrs(b: &BlockNode) -> String {
     match &b.role {
-        None => format!("data-hdm-id=\"{}\"", esc_attr(&b.id)),
-        Some(role) => format!("data-hdm-id=\"{}\" role=\"{}\"", esc_attr(&b.id), esc_attr(role)),
+        None => format!("data-ad-id=\"{}\"", esc_attr(&b.id)),
+        Some(role) => format!("data-ad-id=\"{}\" role=\"{}\"", esc_attr(&b.id), esc_attr(role)),
     }
 }
 
@@ -71,7 +71,7 @@ fn bind_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"(^|[^\\])\{([^{}]+)\}").unwrap())
 }
 
-/// SPEC 5/Appendix A: `{expr}` bindings become data-hdm-bind spans. Without
+/// SPEC 5/Appendix A: `{expr}` bindings become data-ad-bind spans. Without
 /// an env (level-1 render) the span is empty; with one the current value is
 /// rendered inside for hydration. A binding that fails to evaluate renders
 /// as an empty span: a render error affects one node, never the document.
@@ -96,7 +96,7 @@ fn bind(s: &str, ctx: RenderCtx) -> String {
                         .map(|v| display(&v))
                         .unwrap_or_default(),
                 };
-                out.push_str(&format!("<span data-hdm-bind=\"{}\">{}</span>", esc_attr(raw), esc(&val)));
+                out.push_str(&format!("<span data-ad-bind=\"{}\">{}</span>", esc_attr(raw), esc(&val)));
                 rest = &rest[whole.end()..];
             }
         }
@@ -446,12 +446,12 @@ fn render_chart(b: &BlockNode) -> String {
         Some(v) => esc_attr(&print_literal(v)),
         None => String::new(),
     };
-    format!("<figure {} data-hdm-chart=\"{}\"></figure>", data_attrs(b), ty)
+    format!("<figure {} data-ad-chart=\"{}\"></figure>", data_attrs(b), ty)
 }
 
 fn render_data_block(b: &BlockNode) -> String {
     let json = js_stringify_fields(&b.fields);
-    format!("<script type=\"application/x-hdm-data\" {}>{}</script>", data_attrs(b), esc(&json))
+    format!("<script type=\"application/x-ad-data\" {}>{}</script>", data_attrs(b), esc(&json))
 }
 
 fn field_str(b: &BlockNode, key: &str) -> Option<String> {
@@ -505,13 +505,13 @@ fn render_block(b: &BlockNode, ctx: RenderCtx) -> String {
                     let active = ctx.phases.map_or(false, |p| p.get(&for_id) == Some(phase));
                     if active {
                         format!(
-                            " data-hdm-for=\"{}\" data-hdm-phase=\"{}\"",
+                            " data-ad-for=\"{}\" data-ad-phase=\"{}\"",
                             esc_attr(&for_id),
                             esc_attr(phase)
                         )
                     } else {
                         format!(
-                            " data-hdm-for=\"{}\" data-hdm-phase=\"{}\" hidden",
+                            " data-ad-for=\"{}\" data-ad-phase=\"{}\" hidden",
                             esc_attr(&for_id),
                             esc_attr(phase)
                         )
@@ -520,7 +520,7 @@ fn render_block(b: &BlockNode, ctx: RenderCtx) -> String {
                 _ => String::new(),
             };
             format!(
-                "<section data-hdm-type=\"{}\" {}{} data-hdm-fields=\"{}\">{}</section>",
+                "<section data-ad-type=\"{}\" {}{} data-ad-fields=\"{}\">{}</section>",
                 esc_attr(&b.block_type),
                 data_attrs(b),
                 async_attrs,

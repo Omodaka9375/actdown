@@ -1,21 +1,21 @@
-# htmd specification, draft 0.1
+# actdown specification, draft 0.1
 
 Status: DRAFT. This document is normative. The keywords MUST, MUST NOT,
 SHOULD, and MAY are to be read as in RFC 2119.
 
 ## 1. Overview
 
-htmd (HyperText Markdown, short form: hdm) is a markup language for
+actdown (Actionable Markdown, short form: ad) is a markup language for
 documents that are
 read and written by both humans and autonomous agents. It is a strict
 superset of Markdown (CommonMark 0.31.2) with a block-extension mechanism
-called **hdm blocks**, a flat state model, a typed expression language,
+called **ad blocks**, a flat state model, a typed expression language,
 and a capability-based action system.
 
 Design invariants:
 
-- INV-1: Every valid hdm document is a valid Markdown document. Renderers
-  that do not know htmd MUST still render its prose content.
+- INV-1: Every valid ad document is a valid Markdown document. Renderers
+  that do not know actdown MUST still render its prose content.
 - INV-2: The abstract syntax tree (AST) is the contract. All semantics are
   defined on the AST; the text form is one of several serializations.
 - INV-3: Canonicalization is total and idempotent. For any input, the
@@ -38,13 +38,13 @@ A document is a sequence of **nodes**:
 ```
 Document := Prose* Block* interleaved, in source order
 Prose    := any CommonMark content
-Block    := fenced code block with info string matching HDM_INFO
+Block    := fenced code block with info string matching AD_INFO
 ```
 
-### 2.1 HDM_INFO
+### 2.1 AD_INFO
 
 ```
-HDM_INFO := "hdm-" TYPE [ "?" ATTR { "&" ATTR } ]
+AD_INFO := "ad-" TYPE [ "?" ATTR { "&" ATTR } ]
 ATTR     := NAME [ "=" VALUE ] | "on:" EVENT  ; VALUE percent-decoded
 EVENT    := "click" | "submit" | "change" | "load"
 TYPE     := [a-z][a-z0-9-]*
@@ -54,13 +54,13 @@ NAME     := [a-z][a-z0-9-]*
 Example info strings:
 
 ```text
-hdm-price
-hdm-state
-hdm-action?name=add-to-cart&role=primary
-hdm-form?id=contact
+ad-price
+ad-state
+ad-action?name=add-to-cart&role=primary
+ad-form?id=contact
 ```
 
-A fenced block whose info string starts with `hdm-` but whose TYPE is not
+A fenced block whose info string starts with `ad-` but whose TYPE is not
 known to the parser is a **foreign block**: it MUST be preserved verbatim
 in the AST (`type`, raw body, attributes) and rendered as a plain code
 fence. This is the forward-compatibility rule; INV-1 depends on it.
@@ -96,7 +96,7 @@ Renderers MUST render the body text; agents SHOULD read the field set.
 An implementation declares the levels it supports. A parser MUST parse all
 lower levels when it claims a level.
 
-- **Level 0**: Markdown only. No hdm blocks.
+- **Level 0**: Markdown only. No ad blocks.
 - **Level 1**: Structural blocks: `state`, `text`, `data`, `action`,
   `form`, `field`, `list`, `region`, `table`, `image`, `link`, `chart`,
   `include`, `manifest`.
@@ -104,7 +104,7 @@ lower levels when it claims a level.
   (`{expr}` in body text), conditional blocks (`when=`), list repetition
   (`each=`).
 - **Level 3**: The expression language (section 6), computed state
-  (`hdm-state` entries with `=`), async capabilities with pending/success/
+  (`ad-state` entries with `=`), async capabilities with pending/success/
   failure regions.
 
 A Level 2 construct in a Level 1 document MUST degrade to its static
@@ -114,13 +114,13 @@ projection (level-1 rendering), never to an error.
 
 Common attributes on all blocks: `id`, `role`, `when` (L2), `each` (L2).
 
-### 4.1 hdm-state
+### 4.1 ad-state
 
 A flat, ordered map of typed values. Keys match `NAME`. Values are typed
 literals or (Level 3) expressions.
 
 ````md
-```hdm-state
+```ad-state
 count: 0
 title: "Weekly report"
 tags: ["a", "b"]
@@ -132,13 +132,13 @@ An unquoted value is parsed as number if numeric, `true`/`false`/`null`
 if keyword, else string. Strings with punctuation or leading/trailing
 spaces MUST be quoted.
 
-### 4.2 hdm-action
+### 4.2 ad-action
 
 A capability invocation rendered as an interactive element. The block body
 text is the label.
 
 ````md
-```hdm-action?name=cart.add&role=primary&on:click
+```ad-action?name=cart.add&role=primary&on:click
 args: { "sku": "oven-12l" }
 ---
 Add to cart
@@ -153,10 +153,10 @@ Add to cart
 - A renderer MUST NOT fire an action whose capability is not registered
   with the runtime; it renders the block disabled with `data-cap-missing`.
 
-### 4.3 hdm-form
+### 4.3 ad-form
 
 ````md
-```hdm-form?id=contact&action=cap:contact-form@v1
+```ad-form?id=contact&action=cap:contact-form@v1
 email:   input(email, required)
 message: textarea(maxlength=500)
 send:    submit(label="Send")
@@ -179,23 +179,23 @@ visible as names in the expression (so `cap.send(action, $fields)` sends
 to the form's `action` capability); state shadows attributes. A form
 without an `on:` expression fires its `action` capability directly with
 the fields as arguments. Async phases (section 7) are keyed by the
-form's block id, so `hdm-region` blocks with `for: <form-id>` show
+form's block id, so `ad-region` blocks with `for: <form-id>` show
 pending/success/failure around a submit.
 
-### 4.4 hdm-data / hdm-table / hdm-image / hdm-link / hdm-chart
+### 4.4 ad-data / ad-table / ad-image / ad-link / ad-chart
 
-- `hdm-data`: a field set published as data; consumers bind to `id.key`.
-- `hdm-table`: body text is GitHub-flavored markdown table; the AST stores
+- `ad-data`: a field set published as data; consumers bind to `id.key`.
+- `ad-table`: body text is GitHub-flavored markdown table; the AST stores
   parsed rows (arrays of cells), not the raw markdown.
-- `hdm-image`: `src`, `alt` (required), optional `width`, `height`.
-- `hdm-link`: `href` (required, absolute or relative URL), body text is
+- `ad-image`: `src`, `alt` (required), optional `width`, `height`.
+- `ad-link`: `href` (required, absolute or relative URL), body text is
   the label.
-- `hdm-chart`: `src` or inline `data`, plus `type` (`line|bar|pie|spark`),
+- `ad-chart`: `src` or inline `data`, plus `type` (`line|bar|pie|spark`),
   axis hints. Rendering is renderer-defined; the AST is the contract.
 
-### 4.5 hdm-include
+### 4.5 ad-include
 
-`src` names another hdm document (relative path or `cap:` resource). The
+`src` names another ad document (relative path or `cap:` resource). The
 AST stores the reference; inlining is a separate, explicit pass
 (`--inline`) so that a document's meaning is always locally readable.
 Include cycles are error `E_INCLUDE_CYCLE`.
@@ -247,7 +247,7 @@ primary := NAME | NUMBER | STRING | "true" | "false" | "null"
 - The document can name a capability; it cannot define one. Defining
   behavior is out of band (runtime registry), which is what makes the
   language auditable: the set of side effects of a document is exactly its
-  `hdm-action`/`on:` references.
+  `ad-action`/`on:` references.
 - Runtimes MUST enforce:
   - SEC-1: capabilities are opt-in per document origin (granted list).
   - SEC-2: argument values are data, never evaluated as code.
@@ -262,10 +262,10 @@ primary := NAME | NUMBER | STRING | "true" | "false" | "null"
   capability that is not granted is error `E_CAP_MISSING`.
 - Async phases: a capability that returns a promise marks the firing
   block's id `pending`, then `success` or `failure` when it settles.
-  Renderers consult the phase map to show/hide `hdm-region` blocks whose
+  Renderers consult the phase map to show/hide `ad-region` blocks whose
   `for` names the firing block (section 4). A failure is visible state,
   not a crash: the document MUST still render.
-- A document MAY declare its capabilities in an `hdm-manifest` block
+- A document MAY declare its capabilities in an `ad-manifest` block
   (`name`, `min-version`, `scopes`); agents SHOULD use the manifest to
   decide trust before rendering interactively.
 
@@ -281,7 +281,7 @@ MUST be ignored by conforming renderers that do not know them.
 The canonical serialization is JSON. Shape (TypeScript-style):
 
 ```ts
-type Doc    = { hdm: "0.1"; nodes: Node[] }
+type Doc    = { ad: "0.1"; nodes: Node[] }
 type Node   = Prose | Block
 type Prose  = { kind: "prose"; md: string }        // raw markdown, preserved
 type Block  = {
@@ -313,7 +313,7 @@ The printer emits:
 2. Blocks in canonical layout:
 
 ```text
-```hdm-TYPE?attr=value&attr2=value2
+```ad-TYPE?attr=value&attr2=value2
 key: value
 role: primary
 ---
@@ -333,25 +333,25 @@ body text
 ## 11. HTML mapping (non-normative summary, normative in appendix A)
 
 - Prose: pass through to the markdown renderer.
-- `hdm-action` role=button -> `<button data-hdm-id role aria-label>`;
+- `ad-action` role=button -> `<button data-ad-id role aria-label>`;
   the label is text content; no inline handlers; the runtime attaches
-  listeners by `data-hdm-id`.
-- `hdm-form` -> `<form>` with typed inputs; control ids are
+  listeners by `data-ad-id`.
+- `ad-form` -> `<form>` with typed inputs; control ids are
   `<form-id>.<field-name>`.
 - Bindings render once server-side with current state and are hydrated by
   the runtime; the static HTML MUST be complete and valid without JS
   (progressive enhancement is a MUST for level 0-2 documents).
 - Hydration contract (the DOM adapter): the runtime attaches listeners to
-  elements by `data-hdm-id` (from the block's `on:` attributes, else the
+  elements by `data-ad-id` (from the block's `on:` attributes, else the
   type default: action -> `click`, form -> `submit`), updates
-  `data-hdm-bind` spans in place from the state map, and toggles the
-  `hidden` attribute of `[data-hdm-phase]` regions from the phase map.
+  `data-ad-bind` spans in place from the state map, and toggles the
+  `hidden` attribute of `[data-ad-phase]` regions from the phase map.
   Each state change is applied as ONE pass over the tree; conforming
   adapters MUST NOT replace DOM fragments wholesale on every change.
 
-## 12. HTML to hdm downconverter
+## 12. HTML to ad downconverter
 
-`html2hdm` converts legacy HTML into canonical hdm. Contract:
+`html2ad` converts legacy HTML into canonical ad. Contract:
 
 - DOW-1: Lossy in presentation, lossless in meaning. Presentational-only
   nodes (span wrappers, inline style) collapse into prose; every semantic
@@ -362,7 +362,7 @@ body text
   `x-legacy-handler` on the node for audit.
 - DOW-3: Output is canonical form, so the converter is testable by
   snapshot vectors.
-- DOW-4: Forms convert controls to `hdm-form` fields; action names become
+- DOW-4: Forms convert controls to `ad-form` fields; action names become
   `x-legacy:<original-path>#<form-id>` capabilities that the proxy runtime
   implements by replaying the original request.
 
@@ -374,9 +374,9 @@ A conforming implementation passes the vector suite. Vectors are files:
 vectors/
   manifest.json      # level, description and required goldens per vector
   0001-basic-prose/
-    input.hdm
+    input.ad
     ast.json          # exact expected canonical AST
-    canonical.hdm     # exact expected canonical form
+    canonical.ad     # exact expected canonical form
     html.html         # expected level-1 HTML render
     reactive.html     # expected state-applied render (level 2+)
 ```
@@ -390,7 +390,7 @@ vectors/
     "0001-basic-prose": {
       "level": 0,
       "description": "one line: what the vector pins",
-      "goldens": ["ast.json", "canonical.hdm", "html.html"]
+      "goldens": ["ast.json", "canonical.ad", "html.html"]
     }
   }
 }
@@ -401,13 +401,13 @@ vector is added, never edited, after release; the manifest MUST cover
 every vector directory (and vice versa). Implementations declare their
 highest supported level (section 3) and report `pass | fail(<vector>:<golden>) |
 skip(<level>)` per vector; a run is conforming when nothing reports `fail`.
-`ast.json` and `canonical.hdm` are UTF-8, LF, exact byte comparisons;
-`canonical.hdm` MUST also satisfy INV-3 (idempotence).
+`ast.json` and `canonical.ad` are UTF-8, LF, exact byte comparisons;
+`canonical.ad` MUST also satisfy INV-3 (idempotence).
 
 ## 14. Versioning and evolution
 
-- Spec version `MAJOR.MINOR`; the document declares `hdm: "0.1"` in its
-  AST header and MAY carry a first-line comment `<!-- hdm 0.1 -->`.
+- Spec version `MAJOR.MINOR`; the document declares `ad: "0.1"` in its
+  AST header and MAY carry a first-line comment `<!-- ad 0.1 -->`.
 - New block types and roles are MINOR bumps (forward-compatible via
   foreign blocks). Grammar breaks are MAJOR.
 - The AST JSON header carries the spec version; the text form does not
@@ -424,14 +424,14 @@ MUST still render. Render errors affect one node, never the document.
 
 ## Appendix A: normative HTML mapping table
 
-| hdm node | HTML |
+| ad node | HTML |
 |---|---|
-| `hdm-action` | `<button>` or `<a>` (if `href` also set) with `data-hdm-id`, `data-hdm-cap` |
-| `hdm-form` | `<form data-hdm-id>`; submit via runtime |
+| `ad-action` | `<button>` or `<a>` (if `href` also set) with `data-ad-id`, `data-ad-cap` |
+| `ad-form` | `<form data-ad-id>`; submit via runtime |
 | control | `<input>/<textarea>/<select>` with `name=<field>`, `id=<form>.<field>` |
-| `hdm-data` | `<script type="application/x-hdm-data">` (JSON) |
-| `hdm-image` | `<img src alt width height>` |
-| `hdm-link` | `<a href>` |
-| `hdm-table` | `<table>` from parsed rows |
-| `hdm-chart` | `<figure data-hdm-chart="type">` with `<table>` fallback of the data |
-| binding `{expr}` | `<span data-hdm-bind="expr">initial</span>` |
+| `ad-data` | `<script type="application/x-ad-data">` (JSON) |
+| `ad-image` | `<img src alt width height>` |
+| `ad-link` | `<a href>` |
+| `ad-table` | `<table>` from parsed rows |
+| `ad-chart` | `<figure data-ad-chart="type">` with `<table>` fallback of the data |
+| binding `{expr}` | `<span data-ad-bind="expr">initial</span>` |

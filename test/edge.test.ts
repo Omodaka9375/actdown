@@ -56,10 +56,10 @@ describe("edge core", () => {
     }
   });
 
-  it("transcodes a fetched page to canonical hdm (agents) and keeps the html (humans)", async () => {
+  it("transcodes a fetched page to canonical ad (agents) and keeps the html (humans)", async () => {
     const result = await transcodeUrl("https://example.com/report", optsWith(ok(PAGE)));
     expect(result.source).toBe("https://example.com/report");
-    expect(result.canonical).toContain("hdm-");
+    expect(result.canonical).toContain("ad-");
     expect(result.canonical).toContain("# Weekly report");
     expect(result.canonical).toContain("**up 12%**");
     expect(result.html).toContain("<h1>Weekly report</h1>");
@@ -100,10 +100,10 @@ describe("edge core", () => {
   it("serves every format from one conversion", async () => {
     const result = await transcodeUrl("https://example.com/r", optsWith(ok(PAGE)));
     const canonical = formatConversion(result, "canonical");
-    expect(canonical.contentType).toBe("text/x-hdm; charset=utf-8");
+    expect(canonical.contentType).toBe("text/x-ad; charset=utf-8");
     const ast = formatConversion(result, "ast");
     expect(ast.contentType).toBe("application/json; charset=utf-8");
-    expect(parseJson(ast.body)).toMatchObject({ hdm: "0.1" });
+    expect(parseJson(ast.body)).toMatchObject({ ad: "0.1" });
     const html = formatConversion(result, "html");
     expect(html.contentType).toBe("text/html; charset=utf-8");
     expect(html.body).toContain("<h1>Weekly report</h1>");
@@ -124,7 +124,7 @@ describe("edge gateway (live HTTP)", () => {
       s.listen(0, "127.0.0.1", () => resolve((s.address() as AddressInfo).port));
     });
 
-  it("end to end: fixture page through the gateway to canonical hdm", async () => {
+  it("end to end: fixture page through the gateway to canonical ad", async () => {
     const upstreamPort = await listen((req, res) => {
       if ((req.url ?? "").split("?")[0] !== "/report") {
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
@@ -144,14 +144,14 @@ describe("edge gateway (live HTTP)", () => {
 
     const canonical = await fetch(`${base}/transcode?url=${encodeURIComponent(upstream)}`);
     expect(canonical.status).toBe(200);
-    expect(canonical.headers.get("content-type")).toBe("text/x-hdm; charset=utf-8");
+    expect(canonical.headers.get("content-type")).toBe("text/x-ad; charset=utf-8");
     const text = await canonical.text();
-    expect(text).toContain("hdm-");
+    expect(text).toContain("ad-");
     expect(text).toContain("# Weekly report");
 
     const ast = await fetch(`${base}/transcode?url=${encodeURIComponent(upstream)}&format=ast`);
     expect(ast.headers.get("content-type")).toBe("application/json; charset=utf-8");
-    expect(parseJson(await ast.text())).toMatchObject({ hdm: "0.1" });
+    expect(parseJson(await ast.text())).toMatchObject({ ad: "0.1" });
 
     const rendered = await fetch(`${base}/transcode?url=${encodeURIComponent(upstream)}&format=html`);
     expect(await rendered.text()).toContain("<h1>Weekly report</h1>");
@@ -169,7 +169,7 @@ describe("edge gateway (live HTTP)", () => {
 
     // Guard is off in this deployment (allowPrivate); UI pages exist.
     const home = await fetch(base);
-    expect(await home.text()).toContain("htmd edge");
+    expect(await home.text()).toContain("actdown edge");
   });
 
   it("refuses private targets when the guard is on", async () => {

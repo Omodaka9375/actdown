@@ -1,5 +1,5 @@
 {
-  "hdm": "0.1",
+  "ad": "0.1",
   "nodes": [
     {
       "kind": "prose",
@@ -9,7 +9,7 @@
       "kind": "block",
       "foreign": true,
       "type": "state",
-      "raw": "```hdm-state\ncount: 0\ncount: 1\n```",
+      "raw": "```ad-state\ncount: 0\ncount: 1\n```",
       "line": 3,
       "diagnostic": {
         "code": "E_DUPLICATE_KEY",

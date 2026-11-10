@@ -3,7 +3,7 @@ import { computeState, renderWithState, type ReactiveOptions } from "./react.js"
 import type { BlockNode, Doc, Literal, Node } from "./types.js";
 
 /**
- * SPEC 7/11: the runtime. It attaches behavior by `data-hdm-id`, keeps the
+ * SPEC 7/11: the runtime. It attaches behavior by `data-ad-id`, keeps the
  * flat state map, and re-renders all bindings in one pass on every change
  * (no torn reads, SPEC 5). Capabilities are opt-in: a capability runs only if
  * it is present in the capabilities granted to `hydrate` (SEC-1).
@@ -51,8 +51,8 @@ export interface Runtime {
   html(): string;
   /**
    * Fire a block's `on:<event>` expression with `$name` payload available.
-   * A plain `hdm-action` (no `on:` expression) fires its `name` capability
-   * with its `args` field (SPEC 4.2); a plain `hdm-form` fires its `action`
+   * A plain `ad-action` (no `on:` expression) fires its `name` capability
+   * with its `args` field (SPEC 4.2); a plain `ad-form` fires its `action`
    * capability with the submitted fields (SPEC 4.3). Resolves after any
    * awaited capability settles and the phase regions are updated.
    */

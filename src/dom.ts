@@ -4,7 +4,7 @@ import type { BlockNode, Doc, Literal, Node } from "./types.js";
 
 /**
  * SPEC 11: the DOM adapter. Instead of re-rendering whole fragments, it maps
- * `data-hdm-id` to event listeners and `data-hdm-bind` to live element
+ * `data-ad-id` to event listeners and `data-ad-bind` to live element
  * updates: `sync()` is one pass over the tree (bindings + phase regions) with
  * no torn reads. It is written against a minimal structural element view so
  * the package stays dependency-free; a standard browser `HTMLElement`
@@ -81,8 +81,8 @@ function preventDefault(ev: unknown): void {
 }
 
 /**
- * Hydrate rendered HTML in place: attach listeners by `data-hdm-id` and keep
- * `data-hdm-bind` spans and phase regions in sync with the runtime state.
+ * Hydrate rendered HTML in place: attach listeners by `data-ad-id` and keep
+ * `data-ad-bind` spans and phase regions in sync with the runtime state.
  */
 export function hydrateDom(
   doc: Doc,
@@ -95,8 +95,8 @@ export function hydrateDom(
 
   const collect = opts.collectFields ?? collectNamed;
 
-  root.querySelectorAll("[data-hdm-id]").forEach((el) => {
-    const id = el.getAttribute("data-hdm-id");
+  root.querySelectorAll("[data-ad-id]").forEach((el) => {
+    const id = el.getAttribute("data-ad-id");
     if (id === null) return;
     // `each=` repeats a block as `${id}-${index}`: resolve the source block
     // and expose the clone index as `$index` so handlers can act on the item.
@@ -118,8 +118,8 @@ export function hydrateDom(
 
   function sync(): void {
     const scope = runtime.state();
-    root.querySelectorAll("[data-hdm-bind]").forEach((el) => {
-      const raw = el.getAttribute("data-hdm-bind");
+    root.querySelectorAll("[data-ad-bind]").forEach((el) => {
+      const raw = el.getAttribute("data-ad-bind");
       if (raw === null) return;
       let val = "";
       try {
@@ -130,9 +130,9 @@ export function hydrateDom(
       el.textContent = val;
     });
     const phases = runtime.phases();
-    root.querySelectorAll("[data-hdm-phase]").forEach((el) => {
-      const phase = el.getAttribute("data-hdm-phase");
-      const forId = el.getAttribute("data-hdm-for");
+    root.querySelectorAll("[data-ad-phase]").forEach((el) => {
+      const phase = el.getAttribute("data-ad-phase");
+      const forId = el.getAttribute("data-ad-for");
       el.hidden = !(phase !== null && forId !== null && phases[forId] === phase);
     });
   }

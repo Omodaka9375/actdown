@@ -1,5 +1,5 @@
 {
-  "hdm": "0.1",
+  "ad": "0.1",
   "nodes": [
     {
       "kind": "prose",
@@ -8,7 +8,7 @@
     {
       "kind": "block",
       "type": "state",
-      "id": "hd917a49c89",
+      "id": "h858678918c",
       "attrs": {},
       "fields": {
         "count": 2,
@@ -28,7 +28,7 @@
     {
       "kind": "block",
       "type": "action",
-      "id": "hb981a51c33",
+      "id": "h15d4cce789",
       "role": "primary",
       "attrs": {
         "name": "cart.add",
@@ -45,7 +45,7 @@
     {
       "kind": "block",
       "type": "region",
-      "id": "h20c245f60d",
+      "id": "h68ce0e96f9",
       "attrs": {},
       "fields": {
         "when": {
@@ -59,7 +59,7 @@
     {
       "kind": "block",
       "type": "text",
-      "id": "hc754cce340",
+      "id": "h4a559166bc",
       "attrs": {},
       "fields": {
         "each": "item in tags",

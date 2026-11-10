@@ -7,11 +7,11 @@ const doc = (src: string): Doc => canonicalize(parse(src).doc);
 
 const COUNTER = `# Counter
 
-\`\`\`hdm-state
+\`\`\`ad-state
 count: 0
 \`\`\`
 
-\`\`\`hdm-action?name=counter.inc&role=primary&on:click
+\`\`\`ad-action?name=counter.inc&role=primary&on:click
 id: inc
 ---
 Add one ({count})
@@ -22,27 +22,27 @@ Count is {count}.
 
 const SAVE = `# Save
 
-\`\`\`hdm-action?name=doc.save&on:click
+\`\`\`ad-action?name=doc.save&on:click
 id: save
 ---
 Save now
 \`\`\`
 
-\`\`\`hdm-region
+\`\`\`ad-region
 for: save
 phase: pending
 ---
 Saving...
 \`\`\`
 
-\`\`\`hdm-region
+\`\`\`ad-region
 for: save
 phase: success
 ---
 Saved at {saved}.
 \`\`\`
 
-\`\`\`hdm-region
+\`\`\`ad-region
 for: save
 phase: failure
 ---
@@ -50,19 +50,19 @@ Could not save.
 \`\`\`
 `;
 
-const ECHO = '```hdm-action?name=echo.set&on:click=cap.send("echo.set", {value: $value})\nid: echo\n---\nEcho\n```';
+const ECHO = '```ad-action?name=echo.set&on:click=cap.send("echo.set", {value: $value})\nid: echo\n---\nEcho\n```';
 
 describe("runtime (SPEC 7/11)", () => {
-  it("attaches capabilities by data-hdm-id and updates bindings in one pass", async () => {
+  it("attaches capabilities by data-ad-id and updates bindings in one pass", async () => {
     const rt = hydrate(doc(COUNTER), {
       capabilities: {
         "counter.inc": (_args, ctx) => ctx.set({ count: (ctx.state.count as number) + 1 }),
       },
     });
-    expect(rt.html()).toContain('data-hdm-bind="count">0</span>');
+    expect(rt.html()).toContain('data-ad-bind="count">0</span>');
     await rt.fire("inc", "click");
     expect(rt.state()).toEqual({ count: 1 });
-    expect(rt.html()).toContain('data-hdm-bind="count">1</span>');
+    expect(rt.html()).toContain('data-ad-bind="count">1</span>');
   });
 
   it("passes $payload from fire into on: expressions", async () => {
@@ -99,13 +99,13 @@ describe("runtime (SPEC 7/11)", () => {
     const done = rt.fire("save", "click");
     // Pending is visible in html() before the capability settles.
     expect(rt.phases()).toEqual({ save: "pending" });
-    expect(rt.html()).not.toContain('data-hdm-phase="pending" hidden');
-    expect(rt.html()).toContain('data-hdm-phase="success" hidden');
+    expect(rt.html()).not.toContain('data-ad-phase="pending" hidden');
+    expect(rt.html()).toContain('data-ad-phase="success" hidden');
     resolveSave(undefined);
     await done;
     expect(rt.phases()).toEqual({ save: "success" });
-    expect(rt.html()).toContain('data-hdm-phase="success"');
-    expect(rt.html()).not.toContain('data-hdm-phase="success" hidden');
+    expect(rt.html()).toContain('data-ad-phase="success"');
+    expect(rt.html()).not.toContain('data-ad-phase="success" hidden');
     expect(rt.html()).toContain('>just now</span>');
   });
 
@@ -125,7 +125,7 @@ describe("runtime (SPEC 7/11)", () => {
   it("static level-1 render keeps every phase region hidden", () => {
     const html = render(doc(SAVE));
     expect(html.match(/hidden/g)!.length).toBe(3);
-    expect(html).toContain('data-hdm-for="save"');
+    expect(html).toContain('data-ad-for="save"');
   });
 
   it("submits a form end to end: on:submit sees $fields and action (SPEC 4.3)", async () => {
@@ -152,8 +152,8 @@ describe("runtime (SPEC 7/11)", () => {
         },
       },
     });
-    await rt.fire("search", "submit", { fields: { q: "hdm" } });
-    expect(seen).toEqual([{ q: "hdm" }]);
+    await rt.fire("search", "submit", { fields: { q: "ad" } });
+    expect(seen).toEqual([{ q: "ad" }]);
     await expect(rt.fire("search", "submit", { fields: { q: "x" } })).resolves.toBeUndefined();
   });
 
@@ -172,7 +172,7 @@ describe("runtime (SPEC 7/11)", () => {
     });
     const done = rt.submit("contact", { email: "a@b.c" });
     expect(rt.phases()).toEqual({ contact: "pending" });
-    expect(rt.html()).toContain('data-hdm-phase="pending"');
+    expect(rt.html()).toContain('data-ad-phase="pending"');
     release();
     await done;
     expect(rt.phases()).toEqual({ contact: "success" });
@@ -182,21 +182,21 @@ describe("runtime (SPEC 7/11)", () => {
 
 const CONTACT = `# Contact
 
-\`\`\`hdm-form?id=contact&action=cap:contact-form@v1
+\`\`\`ad-form?id=contact&action=cap:contact-form@v1
 email: input(email, required)
 message: textarea(maxlength=500)
 send: submit(label="Send")
 on:submit: cap.send(action, $fields)
 \`\`\`
 
-\`\`\`hdm-region
+\`\`\`ad-region
 for: contact
 phase: pending
 ---
 Sending...
 \`\`\`
 
-\`\`\`hdm-region
+\`\`\`ad-region
 for: contact
 phase: success
 ---
@@ -206,7 +206,7 @@ Thanks, {email}.
 
 const PLAIN_FORM = `# Search
 
-\`\`\`hdm-form?id=search&action=cap:search@v1
+\`\`\`ad-form?id=search&action=cap:search@v1
 q: input(text, required)
 go: submit(label="Go")
 \`\`\`

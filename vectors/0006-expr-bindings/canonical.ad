@@ -1,7 +1,7 @@
 # Cart
 
-```hdm-state
-id: hd917a49c89
+```ad-state
+id: h858678918c
 count: 2
 price: 5
 tags: ["mug","oven"]
@@ -9,8 +9,8 @@ total: {count + price}
 
 ```
 
-```hdm-action?name=cart.add&on:click
-id: hb981a51c33
+```ad-action?name=cart.add&on:click
+id: h15d4cce789
 role: primary
 args: {"sku":"oven-12l"}
 ---
@@ -18,16 +18,16 @@ Add {count} items
 
 ```
 
-```hdm-region
-id: h20c245f60d
+```ad-region
+id: h68ce0e96f9
 when: {count > 0}
 ---
 {total} in the cart
 
 ```
 
-```hdm-text
-id: hc754cce340
+```ad-text
+id: h4a559166bc
 each: "item in tags"
 body: {item}
 

@@ -1,4 +1,4 @@
-//! The hdm block grammar (SPEC 2/3/4): fenced blocks with `hdm-<type>` info
+//! The ad block grammar (SPEC 2/3/4): fenced blocks with `ad-<type>` info
 //! strings, a `KEY: VALUE` field set, optional `---` body text, trigger
 //! events, and error demotion to foreign blocks (SPEC 15). A faithful port
 //! of the TypeScript reference parser.
@@ -33,9 +33,9 @@ fn fence_open_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"^ {0,3}(`{3,}|~{3,})[ \t]*(.*)$").unwrap())
 }
 
-fn hdm_info_re() -> &'static Regex {
+fn ad_info_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^hdm-([a-z][a-z0-9-]*)(\?(.*))?$").unwrap())
+    RE.get_or_init(|| Regex::new(r"^ad-([a-z][a-z0-9-]*)(\?(.*))?$").unwrap())
 }
 
 fn event_attr_re() -> &'static Regex {
@@ -133,12 +133,12 @@ pub fn parse(input: &str) -> ParseResult {
             }
             Some(f) => f,
         };
-        let m = hdm_info_re().captures(&fence.info);
-        let is_hdm = fence.backtick && m.is_some();
+        let m = ad_info_re().captures(&fence.info);
+        let is_ad = fence.backtick && m.is_some();
         let unclosed = fence.end >= lines.len();
         let last = if unclosed { lines.len() - 1 } else { fence.end };
-        if !is_hdm {
-            // Not an hdm block: preserve verbatim as prose (INV-1).
+        if !is_ad {
+            // Not an ad block: preserve verbatim as prose (INV-1).
             for k in i..=last {
                 prose.push(lines[k]);
             }
@@ -187,7 +187,7 @@ pub fn parse(input: &str) -> ParseResult {
         i = fence.end + 1;
     }
     flush_prose(&mut prose, &mut nodes);
-    ParseResult { doc: Doc { hdm: "0.1", nodes }, diagnostics }
+    ParseResult { doc: Doc { ad: "0.1", nodes }, diagnostics }
 }
 
 fn demote(
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     fn parses_a_simple_state_block() {
-        let input = "```hdm-state\ncount: 0\ntitle: \"Weekly report\"\ntags: [\"a\", \"b\"]\n```";
+        let input = "```ad-state\ncount: 0\ntitle: \"Weekly report\"\ntags: [\"a\", \"b\"]\n```";
         let result = parse(input);
         assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
         match &result.doc.nodes[0] {
@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn body_field_on_event() {
-        let input = "```hdm-form?id=contact&action=cap:contact-form@v1\nemail: input(email, required)\non:submit: cap.send(action, $fields)\n```";
+        let input = "```ad-form?id=contact&action=cap:contact-form@v1\nemail: input(email, required)\non:submit: cap.send(action, $fields)\n```";
         let result = parse(input);
         assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
     }

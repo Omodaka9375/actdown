@@ -7,7 +7,7 @@ function blockOf(src: string): BlockNode {
   const { doc } = parse(src);
   const n = doc.nodes[0]!;
   if (n.kind !== "block" || "foreign" in n) throw new Error("expected a parsed block");
-  return canonicalize({ hdm: "0.1", nodes: [n] }).nodes[0] as BlockNode;
+  return canonicalize({ ad: "0.1", nodes: [n] }).nodes[0] as BlockNode;
 }
 
 describe("prose renderer", () => {
@@ -41,61 +41,61 @@ describe("prose renderer", () => {
   });
 });
 
-describe("block rendering (Appendix A)", () => {  it("renders hdm-action as a button with data-hdm-id and label", () => {
-    const html = render({ hdm: "0.1", nodes: [blockOf("```hdm-action?name=cart.add&role=primary&on:click\nargs: {}\n---\nAdd to cart\n```")] });
-    expect(html).toMatch(/^<button data-hdm-id="h[0-9a-f]{10}" role="primary">Add to cart<\/button>$/);
+describe("block rendering (Appendix A)", () => {  it("renders ad-action as a button with data-ad-id and label", () => {
+    const html = render({ ad: "0.1", nodes: [blockOf("```ad-action?name=cart.add&role=primary&on:click\nargs: {}\n---\nAdd to cart\n```")] });
+    expect(html).toMatch(/^<button data-ad-id="h[0-9a-f]{10}" role="primary">Add to cart<\/button>$/);
   });
 
   it("renders unregistered capabilities disabled with data-cap-missing", () => {
-    const b = blockOf("```hdm-action?name=cart.add\n---\nGo\n```");
-    const html = render({ hdm: "0.1", nodes: [b] }, { registry: { has: () => false } });
+    const b = blockOf("```ad-action?name=cart.add\n---\nGo\n```");
+    const html = render({ ad: "0.1", nodes: [b] }, { registry: { has: () => false } });
     expect(html).toContain("data-cap-missing");
     expect(html).toContain("disabled");
   });
 
   it("renders registered capabilities enabled", () => {
-    const b = blockOf("```hdm-action?name=cart.add\n---\nGo\n```");
-    const html = render({ hdm: "0.1", nodes: [b] }, { registry: { has: (n) => n === "cart.add" } });
+    const b = blockOf("```ad-action?name=cart.add\n---\nGo\n```");
+    const html = render({ ad: "0.1", nodes: [b] }, { registry: { has: (n) => n === "cart.add" } });
     expect(html).not.toContain("data-cap-missing");
   });
 
-  it("renders hdm-action with href as an anchor", () => {
-    const b = blockOf("```hdm-action?name=nav.open&href=%2Fdocs\n---\nDocs\n```");
-    expect(render({ hdm: "0.1", nodes: [b] })).toContain('<a href="/docs"');
+  it("renders ad-action with href as an anchor", () => {
+    const b = blockOf("```ad-action?name=nav.open&href=%2Fdocs\n---\nDocs\n```");
+    expect(render({ ad: "0.1", nodes: [b] })).toContain('<a href="/docs"');
   });
 
-  it("renders hdm-form controls with name and id", () => {
-    const b = blockOf("```hdm-form\nid: contact\nemail: input(email, required)\nmessage: textarea(maxlength=500)\nsend: submit(label=\"Send\")\n```");
-    const html = render({ hdm: "0.1", nodes: [b] });
+  it("renders ad-form controls with name and id", () => {
+    const b = blockOf("```ad-form\nid: contact\nemail: input(email, required)\nmessage: textarea(maxlength=500)\nsend: submit(label=\"Send\")\n```");
+    const html = render({ ad: "0.1", nodes: [b] });
     expect(html).toContain('<input type="email" name="email" id="contact.email" required>');
     expect(html).toContain('<textarea name="message" id="contact.message"');
     expect(html).toContain('<button type="submit" id="contact.send">Send</button>');
   });
 
-  it("renders hdm-table from parsed GFM rows", () => {
-    const b = blockOf("```hdm-table\nrole: table\n---\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```");
-    const html = render({ hdm: "0.1", nodes: [b] });
+  it("renders ad-table from parsed GFM rows", () => {
+    const b = blockOf("```ad-table\nrole: table\n---\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```");
+    const html = render({ ad: "0.1", nodes: [b] });
     expect(html).toContain("<thead><tr><th>a</th><th>b</th></tr></thead>");
     expect(html).toContain("<td>1</td>");
   });
 
-  it("renders hdm-image, hdm-link, hdm-data and chart fallback", () => {
-    const img = render({ hdm: "0.1", nodes: [blockOf("```hdm-image\nsrc: a.png\nalt: A\nwidth: 320\n```")] });
+  it("renders ad-image, ad-link, ad-data and chart fallback", () => {
+    const img = render({ ad: "0.1", nodes: [blockOf("```ad-image\nsrc: a.png\nalt: A\nwidth: 320\n```")] });
     expect(img).toBe('<img src="a.png" alt="A" width="320">');
-    const data = render({ hdm: "0.1", nodes: [blockOf("```hdm-data\nprice: 9\n```")] });
-    expect(data).toContain('type="application/x-hdm-data"');
+    const data = render({ ad: "0.1", nodes: [blockOf("```ad-data\nprice: 9\n```")] });
+    expect(data).toContain('type="application/x-ad-data"');
     expect(data).toContain('{"price":9}');
-    const chart = render({ hdm: "0.1", nodes: [blockOf("```hdm-chart\ntype: line\n```")] });
-    expect(chart).toContain('data-hdm-chart="line"');
+    const chart = render({ ad: "0.1", nodes: [blockOf("```ad-chart\ntype: line\n```")] });
+    expect(chart).toContain('data-ad-chart="line"');
   });
 
-  it("renders bindings as data-hdm-bind spans", () => {
+  it("renders bindings as data-ad-bind spans", () => {
     const html = renderMarkdown("Clicked {count} times");
-    expect(html).toContain('<span data-hdm-bind="count"></span>');
+    expect(html).toContain('<span data-ad-bind="count"></span>');
   });
 
   it("renders foreign blocks as escaped code", () => {
-    const { doc } = parse("```hdm-widget\nmystery: true\n```");
+    const { doc } = parse("```ad-widget\nmystery: true\n```");
     const html = render(doc);
     expect(html).toContain("<pre><code>");
     expect(html).not.toContain("<script");
@@ -127,13 +127,13 @@ describe("robustness (review fixes)", () => {
   });
 
   it("rejects duplicate attributes in an info string", () => {
-    const { diagnostics } = parse("```hdm-action?name=a&name=b\n---\nGo\n```");
+    const { diagnostics } = parse("```ad-action?name=a&name=b\n---\nGo\n```");
     expect(diagnostics.some((d) => d.code === "E_DUPLICATE_KEY")).toBe(true);
   });
 
   it("canonicalize de-duplicates colliding explicit ids", () => {
     const d = canonicalize({
-      hdm: "0.1",
+      ad: "0.1",
       nodes: [
         { kind: "block", type: "link", id: "x", attrs: {}, fields: { href: "a" }, body: "A", line: 1 },
         { kind: "block", type: "link", id: "x", attrs: {}, fields: { href: "b" }, body: "B", line: 2 },

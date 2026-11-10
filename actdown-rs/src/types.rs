@@ -121,7 +121,7 @@ pub enum Node {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Doc {
-    pub hdm: &'static str,
+    pub ad: &'static str,
     pub nodes: Vec<Node>,
 }
 

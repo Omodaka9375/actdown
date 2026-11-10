@@ -49,7 +49,7 @@ export function safeUrl(u: string): string {
 }
 
 /**
- * SPEC 5/Appendix A: `{expr}` bindings become data-hdm-bind spans. Without an
+ * SPEC 5/Appendix A: `{expr}` bindings become data-ad-bind spans. Without an
  * env (level-1 render) the span is empty; with one the current value is
  * rendered inside for hydration. A binding that fails to evaluate renders as
  * an empty span: a render error affects one node, never the document.
@@ -71,7 +71,7 @@ function bind(s: string, env?: Scope): string {
         val = "";
       }
     }
-    out += `<span data-hdm-bind="${escAttr(raw)}">${esc(val)}</span>`;
+    out += `<span data-ad-bind="${escAttr(raw)}">${esc(val)}</span>`;
     rest = rest.slice(m.index + m[0].length);
   }
 }
@@ -81,7 +81,7 @@ function attr(v: AttrValue): string {
 }
 
 function dataAttrs(b: BlockNode): string {
-  const parts = [`data-hdm-id="${escAttr(b.id)}"`];
+  const parts = [`data-ad-id="${escAttr(b.id)}"`];
   if (b.role !== undefined) parts.push(`role="${escAttr(b.role)}"`);
   return parts.join(" ");
 }
@@ -283,12 +283,12 @@ function renderTable(b: BlockNode, env?: Scope): string {
 
 function renderChart(b: BlockNode): string {
   const type = b.fields.type === undefined ? "" : escAttr(printLiteral(b.fields.type));
-  return `<figure ${dataAttrs(b)} data-hdm-chart="${type}"></figure>`;
+  return `<figure ${dataAttrs(b)} data-ad-chart="${type}"></figure>`;
 }
 
 function renderDataBlock(b: BlockNode): string {
   const json = JSON.stringify(b.fields);
-  return `<script type="application/x-hdm-data" ${dataAttrs(b)}>${esc(json)}</script>`;
+  return `<script type="application/x-ad-data" ${dataAttrs(b)}>${esc(json)}</script>`;
 }
 
 export function renderBlock(b: BlockNode, opts: RenderOptions, env?: Scope): string {
@@ -329,9 +329,9 @@ export function renderBlock(b: BlockNode, opts: RenderOptions, env?: Scope): str
       const forId = typeof b.fields.for === "string" ? b.fields.for : "";
       const asyncAttrs =
         typeof phase === "string"
-          ? ` data-hdm-for="${escAttr(forId)}" data-hdm-phase="${escAttr(phase)}"${opts.phases?.[forId] === phase ? "" : " hidden"}`
+          ? ` data-ad-for="${escAttr(forId)}" data-ad-phase="${escAttr(phase)}"${opts.phases?.[forId] === phase ? "" : " hidden"}`
           : "";
-      return `<section data-hdm-type="${escAttr(b.type)}" ${dataAttrs(b)}${asyncAttrs} data-hdm-fields="${escAttr(json)}">${bind(b.body ?? "", env)}</section>`;
+      return `<section data-ad-type="${escAttr(b.type)}" ${dataAttrs(b)}${asyncAttrs} data-ad-fields="${escAttr(json)}">${bind(b.body ?? "", env)}</section>`;
     }
   }
 }

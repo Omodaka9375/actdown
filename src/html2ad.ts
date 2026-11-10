@@ -1,5 +1,5 @@
 /**
- * html2hdm: legacy HTML to canonical hdm (SPEC 12, DOW-1..4).
+ * html2ad: legacy HTML to canonical ad (SPEC 12, DOW-1..4).
  *
  * Lossy in presentation, lossless in meaning: presentational nodes collapse
  * into prose, semantic elements become blocks with roles, script/style and
@@ -10,7 +10,7 @@ import { canonicalize, print } from "./canonical.js";
 import { isInline, parseHtml, textOf, type HtmlNode } from "./htmlparse.js";
 import type { BlockNode, Doc, Node } from "./types.js";
 
-export interface Html2HdmOptions {
+export interface Html2AdOptions {
   /** Original path of the page, used for x-legacy capability names (DOW-4). */
   source?: string;
 }
@@ -112,7 +112,7 @@ export interface Conversion {
   notes: string[];
 }
 
-export function htmlToDoc(html: string, opts: Html2HdmOptions = {}): Conversion {
+export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
   const root = parseHtml(html);
   const nodes: Node[] = [];
   const prose: string[] = [];
@@ -177,7 +177,7 @@ export function htmlToDoc(html: string, opts: Html2HdmOptions = {}): Conversion 
       return;
     }
     // DOW-1: inline content flows into the current paragraph.
-    // (Except <a>: with href it is an hdm-link block, handled below.)
+    // (Except <a>: with href it is an ad-link block, handled below.)
     if (isInline(tag) && tag !== "a") {
       pushInline(inlineSelf(el));
       return;
@@ -243,7 +243,7 @@ export function htmlToDoc(html: string, opts: Html2HdmOptions = {}): Conversion 
   walk(root, 0);
   flushInline();
   flush();
-  return { doc: { hdm: "0.1", nodes }, notes };
+  return { doc: { ad: "0.1", nodes }, notes };
 }
 
 function tableBlock(el: HtmlNode): BlockNode {
@@ -353,8 +353,8 @@ function addControl(
   }
 }
 
-/** Convert legacy HTML to canonical hdm text (DOW-3). */
-export function html2hdm(html: string, opts: Html2HdmOptions = {}): string {
+/** Convert legacy HTML to canonical ad text (DOW-3). */
+export function html2ad(html: string, opts: Html2AdOptions = {}): string {
   const { doc } = htmlToDoc(html, opts);
   return print(canonicalize(doc));
 }

@@ -1,12 +1,12 @@
 # Upload
 
-```hdm-state
-id: h0ae5bfe32e
+```ad-state
+id: h30b606f6cf
 filename: report.pdf
 
 ```
 
-```hdm-action?name=upload.file&on:click
+```ad-action?name=upload.file&on:click
 id: upload
 role: primary
 ---
@@ -14,8 +14,8 @@ Upload {filename}
 
 ```
 
-```hdm-region
-id: h020b876a51
+```ad-region
+id: h5daa9c3660
 for: upload
 phase: pending
 ---
@@ -23,8 +23,8 @@ Uploading {filename}...
 
 ```
 
-```hdm-region
-id: h18072ad290
+```ad-region
+id: h32475a843f
 for: upload
 phase: success
 ---
@@ -32,8 +32,8 @@ Done.
 
 ```
 
-```hdm-region
-id: hcdd4032139
+```ad-region
+id: h96f53aef27
 for: upload
 phase: failure
 ---

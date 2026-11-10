@@ -3,38 +3,38 @@
   "vectors": {
     "0001-basic-prose": {
       "level": 0,
-      "description": "Prose passthrough only (INV-1): a document with no hdm blocks renders identically to markdown.",
-      "goldens": ["ast.json", "canonical.hdm", "html.html", "reactive.html"]
+      "description": "Prose passthrough only (INV-1): a document with no ad blocks renders identically to markdown.",
+      "goldens": ["ast.json", "canonical.ad", "html.html", "reactive.html"]
     },
     "0002-state-and-action": {
       "level": 1,
-      "description": "hdm-state, hdm-data and hdm-action blocks with roles; the action label carries a degraded {expr} binding.",
-      "goldens": ["ast.json", "canonical.hdm", "html.html", "reactive.html"]
+      "description": "ad-state, ad-data and ad-action blocks with roles; the action label carries a degraded {expr} binding.",
+      "goldens": ["ast.json", "canonical.ad", "html.html", "reactive.html"]
     },
     "0003-foreign-block": {
       "level": 1,
       "description": "Unknown block types are preserved verbatim as foreign blocks and render as plain code fences (SPEC 2.1).",
-      "goldens": ["ast.json", "canonical.hdm", "html.html", "reactive.html"]
+      "goldens": ["ast.json", "canonical.ad", "html.html", "reactive.html"]
     },
     "0004-duplicate-key": {
       "level": 1,
       "description": "E_DUPLICATE_KEY demotes the offending block to a foreign block; the document still renders (SPEC 15).",
-      "goldens": ["ast.json", "canonical.hdm", "html.html", "reactive.html"]
+      "goldens": ["ast.json", "canonical.ad", "html.html", "reactive.html"]
     },
     "0005-generated-id": {
       "level": 2,
       "description": "Generated ids are h<sha1(canonical-block)[0:10]>, stable under canonicalization (SPEC 2.3); when=/each= reactivity.",
-      "goldens": ["ast.json", "canonical.hdm", "html.html", "reactive.html"]
+      "goldens": ["ast.json", "canonical.ad", "html.html", "reactive.html"]
     },
     "0006-expr-bindings": {
       "level": 3,
       "description": "Level-3 expression language in state entries and {expr} bindings; reactive.html is the state-applied render (SPEC 5/6).",
-      "goldens": ["ast.json", "canonical.hdm", "html.html", "reactive.html"]
+      "goldens": ["ast.json", "canonical.ad", "html.html", "reactive.html"]
     },
     "0007-async-regions": {
       "level": 3,
-      "description": "hdm-region phase blocks (pending/success/failure) keyed by an action id; the static render keeps every region hidden (SPEC 4/7).",
-      "goldens": ["ast.json", "canonical.hdm", "html.html", "reactive.html"]
+      "description": "ad-region phase blocks (pending/success/failure) keyed by an action id; the static render keeps every region hidden (SPEC 4/7).",
+      "goldens": ["ast.json", "canonical.ad", "html.html", "reactive.html"]
     }
   }
 }

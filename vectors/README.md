@@ -1,6 +1,6 @@
-# htmd conformance vectors
+# actdown conformance vectors
 
-This directory is the conformance suite for htmd draft 0.1 (SPEC 13).
+This directory is the conformance suite for actdown draft 0.1 (SPEC 13).
 Each vector is a minimal document plus the exact expected outputs of a
 conforming implementation. Vectors are stable: after release a vector is
 never edited, only added.
@@ -11,9 +11,9 @@ never edited, only added.
 vectors/
   manifest.json            level + description + required goldens per vector
   0001-basic-prose/
-    input.hdm              the document under test
+    input.ad              the document under test
     ast.json               exact canonical AST (toJSON of the canonicalized doc)
-    canonical.hdm          exact canonical text form (format(input)); idempotent
+    canonical.ad          exact canonical text form (format(input)); idempotent
     html.html              exact level-1 HTML render (SPEC 11 / Appendix A)
     reactive.html          the state-applied render (SPEC 5/11), when present
 ```

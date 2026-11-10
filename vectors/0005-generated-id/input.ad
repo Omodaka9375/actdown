@@ -1,10 +1,10 @@
 # Counter
 
-```hdm-state
+```ad-state
 count: 0
 ```
 
-```hdm-region
+```ad-region
 when: {count > 0}
 ---
 Visible when the counter is above zero.

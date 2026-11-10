@@ -1,25 +1,25 @@
 # Cart
 
-```hdm-state
+```ad-state
 count: 2
 price: 5
 tags: ["mug", "oven"]
 total: {count + price}
 ```
 
-```hdm-action?name=cart.add&role=primary&on:click
+```ad-action?name=cart.add&role=primary&on:click
 args: { "sku": "oven-12l" }
 ---
 Add {count} items
 ```
 
-```hdm-region
+```ad-region
 when: {count > 0}
 ---
 {total} in the cart
 ```
 
-```hdm-text
+```ad-text
 each: item in tags
 body: {item}
 ```

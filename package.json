@@ -1,7 +1,8 @@
 {
-  "name": "htmd",
+  "name": "actdown",
   "version": "0.1.0",
-  "description": "HyperText Markdown for agents and humans (spec draft 0.1)",
+  "description": "Actionable Markdown for agents and humans (spec draft 0.1)",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,8 +11,9 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "verify": "node scripts/verify.mjs",
-    "verify:rs": "cargo test --manifest-path htmd-rs/Cargo.toml",
-    "edge": "node dist/serve.js"
+    "verify:rs": "cargo test --manifest-path actdown-rs/Cargo.toml",
+    "edge": "node dist/serve.js",
+    "demo": "node examples/mcp-approval/demo.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -1,13 +1,13 @@
 # Counter
 
-```hdm-state
-id: ha66975ac9b
+```ad-state
+id: hfc758a8b2a
 count: 0
 
 ```
 
-```hdm-region
-id: he844f10222
+```ad-region
+id: h377c850f80
 when: {count > 0}
 ---
 Visible when the counter is above zero.

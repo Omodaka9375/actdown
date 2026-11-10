@@ -1,5 +1,5 @@
 {
-  "hdm": "0.1",
+  "ad": "0.1",
   "nodes": [
     {
       "kind": "prose",
@@ -8,7 +8,7 @@
     {
       "kind": "block",
       "type": "state",
-      "id": "h9984de26c2",
+      "id": "hd2a2b3fc08",
       "attrs": {},
       "fields": {
         "count": 0,
@@ -24,7 +24,7 @@
     {
       "kind": "block",
       "type": "action",
-      "id": "h88ef3303b9",
+      "id": "h096dc71809",
       "role": "primary",
       "attrs": {
         "name": "cart.add",

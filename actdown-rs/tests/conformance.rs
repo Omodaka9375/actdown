@@ -1,12 +1,12 @@
 //! Cross-language conformance (SPEC 13): the Rust implementation reads the
 //! same vectors/ goldens the TypeScript implementation is tested against:
-//! ast.json, canonical.hdm, html.html (level 1) and reactive.html (level 2+,
+//! ast.json, canonical.ad, html.html (level 1) and reactive.html (level 2+,
 //! the state-applied render of SPEC 5/6).
 
 use std::fs;
 use std::path::PathBuf;
 
-use htmd::{canonicalize, format, parse, render, render_reactive, to_json};
+use actdown::{canonicalize, format, parse, render, render_reactive, to_json};
 
 fn vectors_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("vectors")
@@ -34,7 +34,7 @@ fn conformance_vectors_level_1() {
 
     for (name, entry) in &manifest {
         let dir = vectors_root().join(name);
-        let input = fs::read_to_string(dir.join("input.hdm"))
+        let input = fs::read_to_string(dir.join("input.ad"))
             .unwrap_or_else(|e| panic!("{}: {}", name, e));
         let level = entry.get("level").and_then(|l| l.as_u64()).expect("level");
         let goldens: Vec<String> = entry
@@ -60,9 +60,9 @@ fn conformance_vectors_level_1() {
                     let expected = fs::read_to_string(dir.join(golden)).unwrap();
                     assert_eq!(ast, expected, "{}: ast.json differs", name);
                 }
-                "canonical.hdm" => {
+                "canonical.ad" => {
                     let expected = fs::read_to_string(dir.join(golden)).unwrap();
-                    assert_eq!(canonical, expected, "{}: canonical.hdm differs", name);
+                    assert_eq!(canonical, expected, "{}: canonical.ad differs", name);
                 }
                 "html.html" => {
                     let expected = fs::read_to_string(dir.join(golden)).unwrap();

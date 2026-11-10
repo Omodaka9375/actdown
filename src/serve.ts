@@ -1,9 +1,9 @@
 /**
- * The edge gateway (DESIGN.md, architecture 3). Agents get canonical hdm;
+ * The edge gateway (DESIGN.md, architecture 3). Agents get canonical ad;
  * humans get the original. Endpoints:
  *
  *   GET /                     dual-pane UI (form -> /view)
- *   GET /view?url=...         dual-pane page: rendered hdm + canonical text
+ *   GET /view?url=...         dual-pane page: rendered ad + canonical text
  *   GET /transcode?url=...    machine surface: ?format=canonical|ast|html|raw
  *
  * Errors are JSON: { code, message }. Zero dependencies: node:http + fetch.
@@ -39,25 +39,25 @@ function viewPage(url: string | null): string {
     <input id="url" name="url" type="url" placeholder="https://example.com" value="${url === null ? "" : esc(url)}" required>
     <button>Transcode</button>
   </form>`;
-  const header = `<header><strong>htmd edge</strong>${form}</header>`;
+  const header = `<header><strong>actdown edge</strong>${form}</header>`;
   if (url === null) {
-    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>htmd edge</title>
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>actdown edge</title>
 <style>${UI_STYLE}</style></head><body>${header}
 <div class="intro">
-<h1>HTML in, hdm out</h1>
+<h1>HTML in, ad out</h1>
 <p>Paste a URL above. Agents read <code>/transcode?url=&hellip;</code> as canonical
-htmd; the left pane shows how the downconverted document renders, the right
+actdown; the left pane shows how the downconverted document renders, the right
 pane shows the canonical text.</p>
 <p>Formats: <code>?format=canonical</code> (default), <code>ast</code>,
 <code>html</code>, <code>raw</code>.</p>
 </div></body></html>`;
   }
   const src = `/transcode?url=${encodeURIComponent(url)}`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>htmd edge: ${esc(url)}</title>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>actdown edge: ${esc(url)}</title>
 <style>${UI_STYLE}</style></head><body>${header}
 <main>
   <section><h2>Downconverted (rendered)</h2><iframe src="${src}&amp;format=html" sandbox=""></iframe></section>
-  <section><h2>Canonical hdm</h2><iframe src="${src}&amp;format=canonical"></iframe></section>
+  <section><h2>Canonical ad</h2><iframe src="${src}&amp;format=canonical"></iframe></section>
 </main></body></html>`;
 }
 
@@ -151,7 +151,7 @@ function main(): void {
   const port = Number(process.env.PORT ?? 8787);
   const server = createEdgeServer({ allowPrivate: process.env.EDGE_ALLOW_PRIVATE === "1" });
   server.listen(port, () => {
-    process.stdout.write(`htmd edge listening on http://localhost:${port}\n`);
+    process.stdout.write(`actdown edge listening on http://localhost:${port}\n`);
   });
 }
 

@@ -1,6 +1,6 @@
 # Forward compatibility
 
-```hdm-widget?from=2030
+```ad-widget?from=2030
 payload: anything
 ```
 

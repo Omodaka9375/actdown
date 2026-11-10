@@ -63,7 +63,7 @@ pub fn print_block(b: &BlockNode, omit_id: bool) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut attr_entries: Vec<(&String, &AttrValue)> = b.attrs.iter().collect();
     attr_entries.sort_by(|(a, _), (c, _)| attr_cmp(a, c));
-    let mut info = format!("```hdm-{}", b.block_type);
+    let mut info = format!("```ad-{}", b.block_type);
     if !attr_entries.is_empty() {
         let pairs: Vec<String> = attr_entries
             .iter()
@@ -164,7 +164,7 @@ pub fn canonicalize(doc: &Doc) -> Doc {
             other => other.clone(),
         })
         .collect();
-    Doc { hdm: doc.hdm, nodes }
+    Doc { ad: doc.ad, nodes }
 }
 
 pub fn format(input: &str) -> String {
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn generated_ids_are_stable() {
-        let input = "```hdm-state\ncount: 0\n```";
+        let input = "```ad-state\ncount: 0\n```";
         let f1 = format(input);
         let f2 = format(&f1);
         assert_eq!(f1, f2, "INV-3 idempotence");

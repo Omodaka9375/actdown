@@ -89,15 +89,15 @@ const all = (root: FakeEl, selector: string): FakeEl[] => {
 };
 
 const byId = (root: FakeEl, id: string): FakeEl =>
-  all(root, "[data-hdm-id]").filter((e) => e.getAttribute("data-hdm-id") === id)[0]!;
+  all(root, "[data-ad-id]").filter((e) => e.getAttribute("data-ad-id") === id)[0]!;
 
 const COUNTER = `# Counter
 
-\`\`\`hdm-state
+\`\`\`ad-state
 count: 0
 \`\`\`
 
-\`\`\`hdm-action?name=counter.inc&role=primary
+\`\`\`ad-action?name=counter.inc&role=primary
 id: inc
 ---
 Add one ({count})
@@ -108,19 +108,19 @@ Count is {count}.
 
 const CONTACT = `# Contact
 
-\`\`\`hdm-form?id=contact&action=cap:contact-form@v1
+\`\`\`ad-form?id=contact&action=cap:contact-form@v1
 email: input(email, required)
 message: textarea(maxlength=500)
 \`\`\`
 
-\`\`\`hdm-region
+\`\`\`ad-region
 for: contact
 phase: pending
 ---
 Sending...
 \`\`\`
 
-\`\`\`hdm-region
+\`\`\`ad-region
 for: contact
 phase: success
 ---
@@ -129,7 +129,7 @@ Thanks, {email}.
 `;
 
 describe("dom adapter (SPEC 11)", () => {
-  it("updates data-hdm-bind spans in place instead of re-rendering", async () => {
+  it("updates data-ad-bind spans in place instead of re-rendering", async () => {
     const html = renderReactive(doc(COUNTER));
     const root = dom(html);
     const handle = hydrateDom(doc(COUNTER), root, {
@@ -140,14 +140,14 @@ describe("dom adapter (SPEC 11)", () => {
       },
     });
 
-    const spans = all(root, "[data-hdm-bind]");
+    const spans = all(root, "[data-ad-bind]");
     expect(spans.map((s) => s.textContent)).toEqual(["0", "0"]);
 
     byId(root, "inc").fire("click");
     await flush();
 
     // Same element objects, new text: updated in place, not re-rendered.
-    expect(all(root, "[data-hdm-bind]")).toEqual(spans);
+    expect(all(root, "[data-ad-bind]")).toEqual(spans);
     expect(spans.map((s) => s.textContent)).toEqual(["1", "1"]);
   });
 
@@ -175,18 +175,18 @@ describe("dom adapter (SPEC 11)", () => {
 
     // Success region unhidden, pending re-hidden, binding refreshed.
     const phase = (p: string): FakeEl =>
-      all(root, "[data-hdm-phase]").filter((e) => e.getAttribute("data-hdm-phase") === p)[0]!;
+      all(root, "[data-ad-phase]").filter((e) => e.getAttribute("data-ad-phase") === p)[0]!;
     expect(phase("success")!.hidden).toBe(false);
     expect(phase("pending")!.hidden).toBe(true);
     expect(handle.runtime.state().email).toBe("a@b.c");
-    expect(all(root, "[data-hdm-bind]").map((s) => s.textContent)).toEqual(["a@b.c"]);
+    expect(all(root, "[data-ad-bind]").map((s) => s.textContent)).toEqual(["a@b.c"]);
   });
 
   it("sync() refreshes bindings after an external runtime.set", () => {
     const html = renderReactive(doc(COUNTER));
     const root = dom(html);
     const handle = hydrateDom(doc(COUNTER), root);
-    const span = all(root, "[data-hdm-bind]")[0]!;
+    const span = all(root, "[data-ad-bind]")[0]!;
     expect(span.textContent).toBe("0");
     handle.runtime.set({ count: 7 });
     handle.sync();
@@ -194,7 +194,7 @@ describe("dom adapter (SPEC 11)", () => {
   });
 
   it("wires listeners on each= clones and passes $index", async () => {
-    const src = "```hdm-state\nitems: [10, 20]\n```\n\n```hdm-action?name=item.pick&id=pick&each=item%20in%20items\non:click: cap.send(\"item.pick\", $index)\n---\nPick\n```";
+    const src = "```ad-state\nitems: [10, 20]\n```\n\n```ad-action?name=item.pick&id=pick&each=item%20in%20items\non:click: cap.send(\"item.pick\", $index)\n---\nPick\n```";
     const root = dom(renderReactive(doc(src)));
     const seen: Literal[] = [];
     hydrateDom(doc(src), root, {

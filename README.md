@@ -1,17 +1,17 @@
-# htmd
+# actdown
 
-**HyperText Markdown: interactive markup for agents and humans.**
+**Actionable Markdown: documents that agents can read, write, and operate.**
 
-htmd (HyperText Markdown, wire-format short form: hdm) is a Markdown
+actdown (short form: ad) is a Markdown
 superset for documents that both people and autonomous agents can read,
-write, and operate. Prose stays Markdown. Fenced `hdm-*` blocks add
+write, and operate. Prose stays Markdown. Fenced `ad-*` blocks add
 semantic structure, state, forms, and actions. Actions name capabilities
 granted by the host application; a document cannot supply arbitrary
 JavaScript.
 
-The project and package are named **htmd**. The existing wire format is
-unchanged: `hdm-*` fences, the `hdm: "0.1"` AST header, `.hdm` documents,
-and `data-hdm-*` HTML attributes remain valid for compatibility.
+The project, package, and file extension (`.ad`) are named **actdown**.
+The wire format is fully consistent: `ad-*` fences, the `ad: "0.1"` AST
+header, `.ad` documents, and `data-ad-*` HTML attributes.
 
 ## Who is it for?
 
@@ -29,24 +29,24 @@ documents**, and the agents themselves:
 
 It is not a no-code website builder, a general replacement for React, or a
 way to run untrusted application code. End users interact with the HTML or
-native UI produced by a host application; they do not need to learn hdm.
+native UI produced by a host application; they do not need to learn ad.
 
-## Why htmd?
+## Why actdown?
 
 HTML is a good browser delivery format but an expensive agent interface.
 Presentation markup obscures meaning, pages are token-heavy, and behavior
 usually depends on JavaScript that an agent should not execute.
 
-htmd separates those concerns:
+actdown separates those concerns:
 
-| Need | htmd answer |
+| Need | actdown answer |
 |---|---|
 | Readable content | Ordinary Markdown prose |
 | Machine meaning | Semantic blocks, stable ids, and roles |
 | Reliable interchange | A defined AST and idempotent canonical text |
 | Interaction without scripts | A small expression language and named capabilities |
 | Controlled side effects | The host grants each capability explicitly |
-| Existing web content | Lossy HTML-to-hdm conversion plus an edge transcoder |
+| Existing web content | Lossy HTML-to-ad conversion plus an edge transcoder |
 
 The important boundary is that **the document describes intent; the host
 owns behavior**. A document can request `cart.add`, but it cannot define
@@ -61,11 +61,11 @@ hosted service or an end-user application:
 2. **`src/`**: the dependency-free TypeScript reference implementation:
    parsing, canonicalization, JSON AST, HTML rendering, reactive state,
    events, forms, a DOM adapter, and HTML downconversion.
-3. **`htmd-rs/`**: the Rust implementation, including a WASM build.
+3. **`actdown-rs/`**: the Rust implementation, including a WASM build.
 4. **`vectors/`**: shared byte-exact conformance fixtures used by both
    implementations.
 5. **`src/edge.ts` and `src/serve.ts`**: an embeddable transcoder core and
-   a development HTTP gateway for HTML-to-hdm conversion.
+   a development HTTP gateway for HTML-to-ad conversion.
 
 There is no prebuilt hosted UI or capability catalog. The integrating
 application decides which capabilities exist and what they are allowed to
@@ -83,11 +83,11 @@ A document mixes normal prose with semantic blocks:
 ````markdown
 # Cart
 
-```hdm-state
+```ad-state
 count: 0
 ```
 
-```hdm-action?name=counter.inc&role=primary
+```ad-action?name=counter.inc&role=primary
 id: add
 ---
 Add one ({count})
@@ -101,8 +101,8 @@ rendered binding spans then show the new value.
 
 ### 2. Let an agent read or produce structured content
 
-The host parses hdm into the AST, or converts an existing HTML page. It
-can then inspect canonical hdm or JSON without executing document code.
+The host parses ad into the AST, or converts an existing HTML page. It
+can then inspect canonical ad or JSON without executing document code.
 The edge gateway exposes the same conversion over HTTP during development.
 
 ### 3. Render and connect host-owned actions
@@ -112,7 +112,7 @@ events through the runtime. For a browser, `hydrateDom` attaches listeners
 and updates existing binding spans in place.
 
 Unknown block types remain code fences, so a document still degrades to
-readable Markdown in tools that do not understand hdm.
+readable Markdown in tools that do not understand ad.
 
 ## Levels
 
@@ -137,11 +137,11 @@ src/           TypeScript reference implementation
   react.ts       computed state, when/each, reactive render
   runtime.ts     hydrate/fire/submit, capability registry, phases
   dom.ts         DOM adapter: in-place binding updates, no re-render
-  html2hdm.ts    legacy HTML to canonical hdm (SPEC 12)
+  html2ad.ts    legacy HTML to canonical ad (SPEC 12)
   edge.ts/serve.ts  the edge transcoder service
 test/          vitest suite (97 tests)
 vectors/       cross-implementation conformance suite (SPEC 13)
-htmd-rs/   Rust port (parser, canonical, render, expr, react, runtime)
+actdown-rs/   Rust port (parser, canonical, render, expr, react, runtime)
 scripts/       verify.mjs: tsc + vitest, shell-agnostic
 SPEC.md        the specification (draft 0.1, normative)
 DESIGN.md      architecture and solution-path rationale
@@ -154,13 +154,13 @@ Requires Node 20+ and pnpm; the Rust tests additionally need cargo.
 ```sh
 pnpm install
 pnpm verify        # tsc, then the full vitest suite
-pnpm verify:rs     # cargo test for htmd-rs
+pnpm verify:rs     # cargo test for actdown-rs
 ```
 
 ## TypeScript example
 
 After `pnpm build`, use `./dist/index.js` from this repository. If this
-package is installed in an application, import from `htmd` instead.
+package is installed in an application, import from `actdown` instead.
 The public exports live in `src/index.ts`; there is no separate runtime
 subpath export.
 
@@ -180,11 +180,11 @@ import {
 
 const input = `# Cart
 
-\`\`\`hdm-state
+\`\`\`ad-state
 count: 0
 \`\`\`
 
-\`\`\`hdm-action?name=counter.inc&role=primary
+\`\`\`ad-action?name=counter.inc&role=primary
 id: add
 ---
 Add one ({count})
@@ -218,7 +218,7 @@ console.log(runtime.html());        // bindings and phase regions updated
 
 In a browser, insert the reactive HTML and call `hydrateDom(doc, root,
 options)` with the same options instead of manually calling `fire`. The
-DOM adapter attaches event listeners by `data-hdm-id`; `handle.sync()`
+DOM adapter attaches event listeners by `data-ad-id`; `handle.sync()`
 refreshes binding spans after an external `runtime.set(...)`.
 
 Interactivity is opt-in per capability: a document can name a capability,
@@ -229,7 +229,7 @@ ungranted capability through the runtime raises `CapMissingError`.
 ## Edge transcoder
 
 The development gateway fetches a URL, downconverts its HTML to canonical
-hdm for agents, and retains the original text. It converts existing pages;
+ad for agents, and retains the original text. It converts existing pages;
 it does not make them interactive, and scripts in the source page are not
 executed.
 
@@ -250,7 +250,7 @@ Then request a conversion, for example:
 /view?url=https%3A%2F%2Fexample.com
 ```
 
-Formats are canonical hdm (`text/x-hdm`, the default), JSON AST, rendered
+Formats are canonical ad (`text/x-ad`, the default), JSON AST, rendered
 HTML, and the original source as inert `text/plain`. `/view` is the
 dual-pane inspection UI. Errors are JSON `{ code, message }`, with codes
 such as `E_EDGE_FETCH`, `E_EDGE_TIMEOUT`, and `E_EDGE_SIZE`.
@@ -262,7 +262,7 @@ used for controlled local fixtures, never for an exposed gateway.
 ## Conformance
 
 The `vectors/` directory is the cross-implementation suite (SPEC 13): each
-vector is an input document plus exact `ast.json`, `canonical.hdm`,
+vector is an input document plus exact `ast.json`, `canonical.ad`,
 `html.html` and (level 2+) `reactive.html` goldens, indexed by
 `manifest.json`. Both implementations read the same goldens, so spec
 conformance is proven twice, not asserted. See `vectors/README.md` for
@@ -270,12 +270,12 @@ the report format (`pass | fail(<vector>:<golden>) | skip(<level>)`).
 
 ## Rust / WASM port
 
-`htmd-rs` mirrors the reference implementation byte for byte on the
+`actdown-rs` mirrors the reference implementation byte for byte on the
 spec surfaces (all 7 vectors pass all 4 goldens) and builds for
 `wasm32-unknown-unknown`:
 
 ```sh
-cd htmd-rs
+cd actdown-rs
 cargo build --target wasm32-unknown-unknown
 ```
 
@@ -308,11 +308,11 @@ Before exposing the gateway beyond a trusted environment, add:
 - CI across supported Node and browser versions, dependency and release
   policies, and operational logging/monitoring.
 
-Feature work still open includes `hdm-include`, some form-control
+Feature work still open includes `ad-include`, some form-control
 rendering, and wasm-bindgen integration. Rust capabilities are synchronous
 while TypeScript capabilities may be asynchronous, so async phase behavior
 is not identical. Do not treat capability names as a security sandbox for
 host functions: capability implementations themselves remain trusted host
 code and must validate their arguments.
 
-No license file is present; add one before redistribution.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).

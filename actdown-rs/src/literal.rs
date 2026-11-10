@@ -175,7 +175,7 @@ pub fn js_stringify(v: &Literal) -> String {
     }
 }
 
-/// Compact JSON of a field map (used by the `x-hdm-data` script tag).
+/// Compact JSON of a field map (used by the `x-ad-data` script tag).
 pub fn js_stringify_fields(fields: &IndexMap<String, FieldValue>) -> String {
     let inner: Vec<String> = fields
         .iter()

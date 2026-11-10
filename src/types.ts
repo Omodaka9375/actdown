@@ -46,7 +46,7 @@ export interface ForeignNode {
 export type Node = ProseNode | BlockNode | ForeignNode;
 
 export interface Doc {
-  hdm: "0.1";
+  ad: "0.1";
   nodes: Node[];
 }
 

@@ -1,5 +1,5 @@
 {
-  "hdm": "0.1",
+  "ad": "0.1",
   "nodes": [
     {
       "kind": "prose",
@@ -9,7 +9,7 @@
       "kind": "block",
       "foreign": true,
       "type": "widget",
-      "raw": "```hdm-widget?from=2030\npayload: anything\n```",
+      "raw": "```ad-widget?from=2030\npayload: anything\n```",
       "line": 3
     },
     {

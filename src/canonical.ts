@@ -29,7 +29,7 @@ function fieldCompare(a: string, b: string): number {
 export function printBlock(b: BlockNode, opts?: { omitId?: boolean }): string {
   const parts: string[] = [];
   const attrEntries = Object.entries(b.attrs).sort(([a], [c]) => attrCompare(a, c));
-  let info = "```hdm-" + b.type;
+  let info = "```ad-" + b.type;
   if (attrEntries.length > 0) {
     info += "?" + attrEntries.map(([k, v]) => (v === "" ? k : `${k}=${encodeAttrVal(v)}`)).join("&");
   }
@@ -83,7 +83,7 @@ export function canonicalize(doc: Doc): Doc {
   const nodes = doc.nodes.map((n) => {
     if (n.kind !== "block" || isForeign(n)) return n;
     let id = n.id === "" ? genId(n) : n.id;
-    // Explicit ids can collide (e.g. repeated slugs from html2hdm); the parser
+    // Explicit ids can collide (e.g. repeated slugs from html2ad); the parser
     // rejects duplicates, so canonicalize makes later ones unique instead.
     if (seen.has(id)) {
       const base = id;
@@ -92,7 +92,7 @@ export function canonicalize(doc: Doc): Doc {
     seen.add(id);
     return id === n.id ? n : { ...n, id };
   });
-  return { hdm: doc.hdm, nodes };
+  return { ad: doc.ad, nodes };
 }
 
 export function format(input: string): string {
