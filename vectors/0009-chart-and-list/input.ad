@@ -1,0 +1,33 @@
+# Metrics
+
+```ad-chart
+type: line
+columns: ["commit", "delta"]
+data: [[1, 12], [2, 30]]
+```
+
+```ad-chart
+type: bar
+data: [{"week": 1, "deploys": 4}, {"week": 2, "deploys": 9}]
+```
+
+```ad-chart
+type: spark
+data: [2, 3, 5, 8]
+```
+
+```ad-chart
+type: line
+data: [[1, 2], "not-a-row"]
+```
+
+```ad-list
+---
+- shipped retry policy
+- cut p95 latency
+```
+
+```ad-list
+ordered: true
+items: ["alpha", "beta"]
+```

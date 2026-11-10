@@ -89,6 +89,33 @@ describe("block rendering (Appendix A)", () => {  it("renders ad-action as a but
     expect(chart).toContain('data-ad-chart="line"');
   });
 
+  it("renders ad-chart table fallbacks and refuses mixed shapes", () => {
+    const rows = render({ ad: "0.1", nodes: [blockOf("```ad-chart\ntype: line\ncolumns: [\"x\", \"y\"]\ndata: [[1, 2], [3, 4]]\n```")] });
+    expect(rows).toContain('data-ad-chart="line">');
+    expect(rows).toContain("<thead><tr><th>x</th><th>y</th></tr></thead>");
+    expect(rows).toContain("<tr><td>1</td><td>2</td></tr>");
+    const objs = render({ ad: "0.1", nodes: [blockOf('```ad-chart\ntype: bar\ndata: [{"a": 1, "b": 2}, {"a": 3, "b": 4}]\n```')] });
+    expect(objs).toContain("<thead><tr><th>a</th><th>b</th></tr></thead>");
+    const flat = render({ ad: "0.1", nodes: [blockOf("```ad-chart\ntype: spark\ndata: [2, 3]\n```")] });
+    expect(flat).toContain("<tr><td>2</td></tr>");
+    expect(flat).not.toContain("<thead>");
+    // Mixed shapes have no deterministic table: the figure stays empty.
+    const mixed = render({ ad: "0.1", nodes: [blockOf('```ad-chart\ntype: line\ndata: [[1, 2], "nope"]\n```')] });
+    expect(mixed.endsWith("</figure>")).toBe(true);
+    expect(mixed).not.toContain("<table>");
+  });
+
+  it("renders ad-list from body markers or the items field", () => {
+    const body = render({ ad: "0.1", nodes: [blockOf("```ad-list\n---\n- one\n- two\n```")] });
+    expect(body).toContain("<ul");
+    expect(body).toContain("<li>one</li>");
+    const orderedBody = render({ ad: "0.1", nodes: [blockOf("```ad-list\n---\n1. one\n2. two\n```")] });
+    expect(orderedBody).toContain("<ol ");
+    const items = render({ ad: "0.1", nodes: [blockOf('```ad-list\nordered: true\nitems: ["a", "b"]\n```')] });
+    expect(items).toContain("<ol ");
+    expect(items).toContain("<li>a</li>");
+  });
+
   it("renders bindings as data-ad-bind spans", () => {
     const html = renderMarkdown("Clicked {count} times");
     expect(html).toContain('<span data-ad-bind="count"></span>');

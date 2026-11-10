@@ -514,12 +514,154 @@ fn render_table(b: &BlockNode, ctx: RenderCtx) -> String {
     )
 }
 
-fn render_chart(b: &BlockNode) -> String {
+/// One cell of a chart fallback table: literals render via display(),
+/// expressions evaluate in the binding scope (empty like any binding when
+/// there is no env) and never throw past one cell.
+fn chart_cell(v: &FieldValue, ctx: RenderCtx) -> String {
+    match v {
+        FieldValue::Expr(e) => match ctx.env {
+            None => String::new(),
+            Some(scope) => {
+                let rendered = eval_expr(&e.raw, &mut crate::expr::EvalContext::render(scope))
+                    .map(|v| display(&v))
+                    .unwrap_or_default();
+                inline(&rendered, ctx)
+            }
+        },
+        FieldValue::Lit(l) => inline(&display(l), ctx),
+    }
+}
+
+/// SPEC Appendix A: an ad-chart renders `<figure data-ad-chart="type">` with a
+/// `<table>` fallback of the data. Accepted shapes for the `data` field:
+/// array of arrays (rows; `columns` field names them), array of objects
+/// (first-seen key order is the header), or a flat array of scalars (one
+/// column). Mixed or empty shapes render no table: the figure stays empty and
+/// the AST is still the contract.
+fn chart_table(data: Option<&FieldValue>, columns: Option<&FieldValue>, ctx: RenderCtx) -> String {
+    let Some(FieldValue::Lit(Literal::Arr(arr))) = data else { return String::new() };
+    if arr.is_empty() {
+        return String::new();
+    }
+    let header: Option<Vec<String>>;
+    let rows: Vec<Vec<String>>;
+    if arr.iter().all(|r| matches!(r, Literal::Arr(_))) {
+        rows = arr
+            .iter()
+            .map(|r| match r {
+                Literal::Arr(cells) => cells.iter().map(|c| chart_cell(&FieldValue::Lit(c.clone()), ctx)).collect(),
+                _ => unreachable!(),
+            })
+            .collect();
+        header = match columns {
+            Some(FieldValue::Lit(Literal::Arr(cols))) if cols.iter().all(|c| matches!(c, Literal::Str(_))) => {
+                Some(cols.iter().map(|c| match c { Literal::Str(s) => s.clone(), _ => unreachable!() }).collect())
+            }
+            _ => None,
+        };
+    } else if arr.iter().all(|r| matches!(r, Literal::Obj(_))) {
+        let mut keys: Vec<String> = Vec::new();
+        for r in arr {
+            if let Literal::Obj(m) = r {
+                for k in m.keys() {
+                    if !keys.contains(k) {
+                        keys.push(k.clone());
+                    }
+                }
+            }
+        }
+        rows = arr
+            .iter()
+            .map(|r| {
+                let empty = Literal::Null;
+                match r {
+                    Literal::Obj(m) => keys
+                        .iter()
+                        .map(|k| chart_cell(&FieldValue::Lit(m.get(k).unwrap_or(&empty).clone()), ctx))
+                        .collect(),
+                    _ => unreachable!(),
+                }
+            })
+            .collect();
+        header = Some(keys);
+    } else if arr.iter().all(|r| matches!(r, Literal::Null | Literal::Bool(_) | Literal::Num(_) | Literal::Str(_))) {
+        rows = arr.iter().map(|v| vec![chart_cell(&FieldValue::Lit(v.clone()), ctx)]).collect();
+        header = None;
+    } else {
+        return String::new(); // mixed shapes: no deterministic fallback
+    }
+    let tbody_rows: Vec<String> = rows
+        .iter()
+        .map(|r| format!("<tr>{}</tr>", r.iter().map(|c| format!("<td>{}</td>", c)).collect::<String>()))
+        .collect();
+    let tbody = format!("<tbody>\n{}\n</tbody>", tbody_rows.join("\n"));
+    match header {
+        None => format!("<table>\n{}\n</table>", tbody),
+        Some(h) => {
+            let ths: String = h.iter().map(|c| format!("<th>{}</th>", inline(c, ctx))).collect();
+            format!("<table>\n<thead><tr>{}</tr></thead>\n{}\n</table>", ths, tbody)
+        }
+    }
+}
+
+fn render_chart(b: &BlockNode, ctx: RenderCtx) -> String {
     let ty = match b.fields.get("type") {
         Some(v) => esc_attr(&print_literal(v)),
         None => String::new(),
     };
-    format!("<figure {} data-ad-chart=\"{}\"></figure>", data_attrs(b), ty)
+    let table = chart_table(b.fields.get("data"), b.fields.get("columns"), ctx);
+    if table.is_empty() {
+        format!("<figure {} data-ad-chart=\"{}\"></figure>", data_attrs(b), ty)
+    } else {
+        format!("<figure {} data-ad-chart=\"{}\">\n{}\n</figure>", data_attrs(b), ty, table)
+    }
+}
+
+/// ad-list (SPEC 3 level 1): an `items` field (array of literals) or body
+/// lines (markdown list markers stripped) render as `<ul>`/`<ol>`. Ordered
+/// when every body line uses `N.` / `N)` markers, or via `ordered: true`.
+fn render_list_block(b: &BlockNode, ctx: RenderCtx) -> String {
+    let mut items: Vec<String> = Vec::new();
+    let mut ordered = matches!(b.fields.get("ordered"), Some(FieldValue::Lit(Literal::Bool(true))));
+    match b.fields.get("items") {
+        Some(FieldValue::Lit(Literal::Arr(vs))) => {
+            items = vs.iter().map(|v| chart_cell(&FieldValue::Lit(v.clone()), ctx)).collect();
+        }
+        _ => {
+            if let Some(body) = b.body.as_deref() {
+                if !body.trim().is_empty() {
+                    let ul_re = regex::Regex::new(r"^[*+-][ \t]+").unwrap();
+                    let ol_re = regex::Regex::new(r"^\d+[.)][ \t]+").unwrap();
+                    let mut all_ol = true;
+                    let lines: Vec<&str> = body.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+                    if lines.is_empty() {
+                        all_ol = false;
+                    }
+                    for l in &lines {
+                        if ol_re.is_match(l) {
+                            items.push(ol_re.replace(l, "").into_owned());
+                        } else {
+                            all_ol = false;
+                            if ul_re.is_match(l) {
+                                items.push(ul_re.replace(l, "").into_owned());
+                            } else {
+                                items.push((*l).to_string());
+                            }
+                        }
+                    }
+                    if !lines.is_empty() {
+                        ordered = all_ol;
+                    }
+                }
+            }
+        }
+    }
+    let tag = if ordered { "ol" } else { "ul" };
+    if items.is_empty() {
+        return format!("<{} {}></{}>", tag, data_attrs(b), tag);
+    }
+    let lis: Vec<String> = items.iter().map(|i| format!("<li>{}</li>", i)).collect();
+    format!("<{} {}>\n{}\n</{}>", tag, data_attrs(b), lis.join("\n"), tag)
 }
 
 fn render_data_block(b: &BlockNode) -> String {
@@ -564,7 +706,8 @@ fn render_block(b: &BlockNode, ctx: RenderCtx) -> String {
             )
         }
         "table" => render_table(b, ctx),
-        "chart" => render_chart(b),
+        "chart" => render_chart(b, ctx),
+        "list" => render_list_block(b, ctx),
         _ => {
             let json = js_stringify_fields(&b.fields);
             let async_attrs = match b.fields.get("phase") {

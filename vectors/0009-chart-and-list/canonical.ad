@@ -1,0 +1,45 @@
+# Metrics
+
+```ad-chart
+id: he394eeb705
+columns: ["commit","delta"]
+data: [[1,12],[2,30]]
+type: line
+
+```
+
+```ad-chart
+id: hae5d463ab4
+data: [{"week":1,"deploys":4},{"week":2,"deploys":9}]
+type: bar
+
+```
+
+```ad-chart
+id: h2b39e559f7
+data: [2,3,5,8]
+type: spark
+
+```
+
+```ad-chart
+id: h984d0795a0
+data: [[1,2],"not-a-row"]
+type: line
+
+```
+
+```ad-list
+id: h112beb806e
+---
+- shipped retry policy
+- cut p95 latency
+
+```
+
+```ad-list
+id: hf3eb814afc
+items: ["alpha","beta"]
+ordered: true
+
+```

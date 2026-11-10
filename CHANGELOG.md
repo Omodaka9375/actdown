@@ -22,6 +22,14 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   E_EDGE_TOO_LARGE`), per-request logging, and a `/healthz` probe.
 - CI: test matrix over Node 20/22/24, a `pnpm audit --prod` job, and weekly
   Dependabot updates for npm, GitHub Actions, and cargo.
+- `ad-chart` now renders its SPEC Appendix A fallback: a `<table>` of the
+  `data` field inside `<figure data-ad-chart="type">` (array rows with an
+  optional `columns` header, object rows keyed by first-seen order, flat
+  scalar arrays as one column). Mixed shapes render no table.
+- `ad-list` (level 1) now renders `<ul>`/`<ol>` instead of a generic
+  section: from body list markers, the `items` field, or `ordered: true`.
+- Conformance vector `0009-chart-and-list` locks both behaviors byte-exact
+  across the TypeScript and Rust implementations.
 
 - Markdown superset with `ad-*` fenced blocks: state, data, action, form,
   table, image, link, chart, region (level 1), bindings, `when=`/`each=`

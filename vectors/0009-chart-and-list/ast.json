@@ -1,0 +1,114 @@
+{
+  "ad": "0.1",
+  "nodes": [
+    {
+      "kind": "prose",
+      "md": "# Metrics"
+    },
+    {
+      "kind": "block",
+      "type": "chart",
+      "id": "he394eeb705",
+      "attrs": {},
+      "fields": {
+        "type": "line",
+        "columns": [
+          "commit",
+          "delta"
+        ],
+        "data": [
+          [
+            1,
+            12
+          ],
+          [
+            2,
+            30
+          ]
+        ]
+      },
+      "body": null,
+      "line": 3
+    },
+    {
+      "kind": "block",
+      "type": "chart",
+      "id": "hae5d463ab4",
+      "attrs": {},
+      "fields": {
+        "type": "bar",
+        "data": [
+          {
+            "week": 1,
+            "deploys": 4
+          },
+          {
+            "week": 2,
+            "deploys": 9
+          }
+        ]
+      },
+      "body": null,
+      "line": 9
+    },
+    {
+      "kind": "block",
+      "type": "chart",
+      "id": "h2b39e559f7",
+      "attrs": {},
+      "fields": {
+        "type": "spark",
+        "data": [
+          2,
+          3,
+          5,
+          8
+        ]
+      },
+      "body": null,
+      "line": 14
+    },
+    {
+      "kind": "block",
+      "type": "chart",
+      "id": "h984d0795a0",
+      "attrs": {},
+      "fields": {
+        "type": "line",
+        "data": [
+          [
+            1,
+            2
+          ],
+          "not-a-row"
+        ]
+      },
+      "body": null,
+      "line": 19
+    },
+    {
+      "kind": "block",
+      "type": "list",
+      "id": "h112beb806e",
+      "attrs": {},
+      "fields": {},
+      "body": "- shipped retry policy\n- cut p95 latency",
+      "line": 24
+    },
+    {
+      "kind": "block",
+      "type": "list",
+      "id": "hf3eb814afc",
+      "attrs": {},
+      "fields": {
+        "ordered": true,
+        "items": [
+          "alpha",
+          "beta"
+        ]
+      },
+      "body": null,
+      "line": 30
+    }
+  ]
+}

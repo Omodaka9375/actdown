@@ -1,6 +1,6 @@
 import { display, evalExpr } from "./expr.js";
 import { printLiteral } from "./literal.js";
-import type { AttrValue, BlockNode, Doc, ForeignNode, Literal, Node } from "./types.js";
+import type { AttrValue, BlockNode, Doc, Expr, ForeignNode, Literal, Node } from "./types.js";
 
 /** Names visible to `{expr}` bindings while rendering (SPEC 5). */
 export type Scope = Record<string, Literal>;
@@ -324,9 +324,101 @@ function renderTable(b: BlockNode, env?: Scope): string {
   return `<table ${dataAttrs(b)}>\n<thead><tr>${head!.map((c) => cell(c, "th")).join("")}</tr></thead>\n<tbody>\n${body}\n</tbody>\n</table>`;
 }
 
-function renderChart(b: BlockNode): string {
+const isExprVal = (v: Literal | Expr): v is Expr =>
+  v !== null && typeof v === "object" && "kind" in v && (v as Expr).kind === "expr";
+
+/**
+ * One cell of a chart fallback table: strings pass through inline(), other
+ * literals render via display(), expressions evaluate in the binding scope
+ * (empty like any binding when there is no env) and never throw past one cell.
+ */
+function chartCell(v: Literal | Expr, env?: Scope): string {
+  if (isExprVal(v)) {
+    if (env === undefined) return "";
+    try {
+      return inline(display(evalExpr(v.raw, { scope: env })), env);
+    } catch {
+      return "";
+    }
+  }
+  return inline(display(v), env);
+}
+
+/**
+ * SPEC Appendix A: an ad-chart renders `<figure data-ad-chart="type">` with a
+ * `<table>` fallback of the data. Accepted shapes for the `data` field:
+ * array of arrays (rows; `columns` field names them), array of objects
+ * (first-seen key order is the header), or a flat array of scalars (one
+ * column). Mixed or empty shapes render no table: the figure stays empty and
+ * the AST is still the contract.
+ */
+function chartTable(
+  data: Literal | Expr | undefined,
+  columns: Literal | Expr | undefined,
+  env?: Scope,
+): string {
+  if (data === undefined || !Array.isArray(data) || data.length === 0) return "";
+  const arr: Literal[] = data;
+  let header: string[] | null = null;
+  let rows: string[][];
+  if (arr.every((r) => Array.isArray(r))) {
+    rows = (arr as Literal[][]).map((r) => r.map((c) => chartCell(c, env)));
+    if (Array.isArray(columns) && columns.every((c) => typeof c === "string")) {
+      header = columns as string[];
+    }
+  } else if (arr.every((r) => r !== null && typeof r === "object" && !Array.isArray(r) && !isExprVal(r as Literal))) {
+    const keys: string[] = [];
+    for (const r of arr as Record<string, Literal>[]) {
+      for (const k of Object.keys(r)) {
+        if (!keys.includes(k)) keys.push(k);
+      }
+    }
+    header = keys;
+    rows = (arr as Record<string, Literal>[]).map((r) => keys.map((k) => chartCell(r[k] ?? "", env)));
+  } else if (arr.every((r) => r === null || typeof r === "string" || typeof r === "number" || typeof r === "boolean")) {
+    rows = (arr as Literal[]).map((v) => [chartCell(v, env)]);
+  } else {
+    return ""; // mixed shapes: no deterministic fallback
+  }
+  const tbody = `<tbody>\n${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("\n")}\n</tbody>`;
+  if (header === null) return `<table>\n${tbody}\n</table>`;
+  const thead = `<thead><tr>${header.map((c) => `<th>${inline(c, env)}</th>`).join("")}</tr></thead>`;
+  return `<table>\n${thead}\n${tbody}\n</table>`;
+}
+
+function renderChart(b: BlockNode, env?: Scope): string {
   const type = b.fields.type === undefined ? "" : escAttr(printLiteral(b.fields.type));
-  return `<figure ${dataAttrs(b)} data-ad-chart="${type}"></figure>`;
+  const table = chartTable(b.fields.data, b.fields.columns, env);
+  return `<figure ${dataAttrs(b)} data-ad-chart="${type}">${table === "" ? "" : `\n${table}\n`}</figure>`;
+}
+
+/**
+ * ad-list (SPEC 3 level 1): an `items` field (array of literals) or body
+ * lines (markdown list markers stripped) render as `<ul>`/`<ol>`. Ordered
+ * when every body line uses `N.` / `N)` markers, or via `ordered: true`.
+ */
+function renderListBlock(b: BlockNode, env?: Scope): string {
+  let items: string[] = [];
+  let ordered = b.fields.ordered === true;
+  const it = b.fields.items;
+  if (it !== undefined && Array.isArray(it)) {
+    items = (it as Literal[]).map((v) => chartCell(v, env));
+  } else if (b.body !== null && b.body.trim() !== "") {
+    const lines = b.body.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    const ulRe = /^[*+-][ \t]+/;
+    const olRe = /^\d+[.)][ \t]+/;
+    let allOl = lines.length > 0;
+    items = lines.map((l) => {
+      if (olRe.test(l)) return l.replace(olRe, "");
+      allOl = false;
+      if (ulRe.test(l)) return l.replace(ulRe, "");
+      return l;
+    });
+    if (lines.length > 0) ordered = allOl;
+  }
+  const tag = ordered ? "ol" : "ul";
+  if (items.length === 0) return `<${tag} ${dataAttrs(b)}></${tag}>`;
+  return `<${tag} ${dataAttrs(b)}>\n${items.map((i) => `<li>${i}</li>`).join("\n")}\n</${tag}>`;
 }
 
 function renderDataBlock(b: BlockNode): string {
@@ -358,13 +450,14 @@ export function renderBlock(b: BlockNode, opts: RenderOptions, env?: Scope): str
       const href = b.fields.href === undefined ? "" : printLiteral(b.fields.href);
       return `<a href="${escAttr(safeUrl(href))}" ${dataAttrs(b)}>${bind(b.body ?? "", env)}</a>`;
     case "table":
-      return renderTable(b);
+      return renderTable(b, env);
     case "chart":
-      return renderChart(b);
+      return renderChart(b, env);
+    case "list":
+      return renderListBlock(b, env);
     case "include":
     case "manifest":
     case "field":
-    case "list":
     case "region":
     default: {
       const json = JSON.stringify(b.fields);
