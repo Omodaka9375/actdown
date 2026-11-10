@@ -95,6 +95,7 @@
       <span class="label">output</span>
       <button class="tab on" id="tab-html">rendered</button>
       <button class="tab" id="tab-htmlstatic">html</button>
+      <button class="tab" id="htmlsrc" style="display:none" title="toggle source / rendered view">source</button>
       <button class="tab" id="tab-canonical">canonical</button>
       <button class="tab" id="tab-ast">ast</button>
     </div>
@@ -186,11 +187,13 @@ function run(renderFn) {
 
 // --- rendering pipeline -----------------------------------------------------
 let mode = "html";
+let htmlStaticSource = false;
 const els = {
   src: document.getElementById("src"),
   htmlview: document.getElementById("htmlview"),
   textout: document.getElementById("textout"),
   status: document.getElementById("status"),
+  htmlsrc: document.getElementById("htmlsrc"),
 };
 
 function setMode(next) {
@@ -198,10 +201,26 @@ function setMode(next) {
   for (const id of ["html", "htmlstatic", "canonical", "ast"]) {
     document.getElementById("tab-" + id).classList.toggle("on", id === next);
   }
-  const isDoc = next === "html";
+  const isDoc = next === "html" || (next === "htmlstatic" && !htmlStaticSource);
   els.htmlview.style.display = isDoc ? "" : "none";
   els.textout.style.display = isDoc ? "none" : "";
+  els.htmlsrc.style.display = next === "htmlstatic" ? "" : "none";
   update();
+}
+
+// Buttons do nothing in the playground (no capability host); wire them
+// so the disabled state is the visible truth rather than a dead click.
+function wireDocButtons() {
+  for (const b of els.htmlview.querySelectorAll("button[data-cap-missing]")) {
+    b.title = "capability not granted: host decides";
+  }
+  for (const b of els.htmlview.querySelectorAll("button:not([data-cap-missing])")) {
+    b.addEventListener("click", () => {
+      els.status.innerHTML =
+        `this button names capability <b>${b.getAttribute("data-ad-fields") ? "" : ""}</b>` +
+        `<b>${(b.textContent || "").trim()}</b> &mdash; a host would grant or refuse it`;
+    });
+  }
 }
 
 function update() {
@@ -224,27 +243,31 @@ function update() {
     return;
   }
   if (mode === "html") {
-    // Buttons do nothing in the playground (no capability host); wire them
-    // so the disabled state is the visible truth rather than a dead click.
     els.htmlview.innerHTML = html;
-    for (const b of els.htmlview.querySelectorAll("button[data-cap-missing]")) {
-      b.title = "capability not granted: host decides";
-    }
-    for (const b of els.htmlview.querySelectorAll("button:not([data-cap-missing])")) {
-      b.addEventListener("click", () => {
-        els.status.innerHTML =
-          `this button names capability <b>${b.getAttribute("data-ad-fields") ? "" : ""}</b>` +
-          `<b>${(b.textContent || "").trim()}</b> &mdash; a host would grant or refuse it`;
-      });
-    }
+    wireDocButtons();
     els.status.innerHTML =
       `parsed <b>ok</b> &mdash; rendered with the <b>Rust</b> engine (wasm) &mdash; ` +
       `<b>${html.length}</b> bytes of html`;
   } else if (mode === "htmlstatic") {
     const staticHtml = run("ad_render");
-    els.textout.textContent = staticHtml ?? "";
-    els.status.innerHTML =
-      `parsed <b>ok</b> &mdash; static level-1 html (no state applied)`;
+    if (staticHtml === null) {
+      els.status.innerHTML = `render error: <span class="e">${lastError()}</span>`;
+      return;
+    }
+    if (htmlStaticSource) {
+      els.htmlview.style.display = "none";
+      els.textout.style.display = "";
+      els.textout.textContent = staticHtml;
+      els.status.innerHTML =
+        `parsed <b>ok</b> &mdash; static level-1 html source (no state applied)`;
+    } else {
+      els.htmlview.style.display = "";
+      els.textout.style.display = "none";
+      els.htmlview.innerHTML = staticHtml;
+      wireDocButtons();
+      els.status.innerHTML =
+        `parsed <b>ok</b> &mdash; static level-1 html, rendered as a plain no-JS consumer sees it (no state applied) &mdash; <b>${staticHtml.length}</b> bytes`;
+    }
   } else if (mode === "canonical") {
     const canonical = run("ad_format");
     els.textout.textContent = canonical ?? "";
@@ -261,6 +284,11 @@ function update() {
 for (const id of ["html", "htmlstatic", "canonical", "ast"]) {
   document.getElementById("tab-" + id).addEventListener("click", () => setMode(id));
 }
+els.htmlsrc.addEventListener("click", () => {
+  htmlStaticSource = !htmlStaticSource;
+  els.htmlsrc.textContent = htmlStaticSource ? "render" : "source";
+  update();
+});
 let timer = null;
 els.src.addEventListener("input", () => {
   clearTimeout(timer);
