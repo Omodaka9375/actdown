@@ -35,6 +35,14 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   initial content (textarea uses it as its text). The control-option parser
   splits only on top-level commas, so `options=["a", "b"]` and quoted
   values containing commas work; vector `0010-form-controls` locks it.
+- `actdown check` now reports review lints beyond parse errors:
+  `W_REGION_FOR` (an ad-region pointing at a missing block id),
+  `W_EXPR_SYNTAX` (an unparseable `when=`/`each=` guard), and
+  `W_CAP_UNDECLARED` (an action naming a capability no ad-manifest
+  declares). Warnings are reported but fail the run only with `--strict`;
+  `actdown_check` in the MCP server includes them. The linter is exported
+  as `lint(doc)`; the Rust port does not implement it yet (tooling, not a
+  spec surface).
 
 - Markdown superset with `ad-*` fenced blocks: state, data, action, form,
   table, image, link, chart, region (level 1), bindings, `when=`/`each=`

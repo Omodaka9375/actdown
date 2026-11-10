@@ -16,6 +16,7 @@ import {
   canonicalize,
   format,
   toJSON,
+  lint,
   render,
   renderReactive,
   html2ad,
@@ -73,6 +74,16 @@ switch (cmd) {
       process.stdout.write(`${d.code}: ${d.message} (line ${d.line})\n`);
     }
     if (docResult.diagnostics.length > 0) process.exit(1);
+    // Review lints are warnings: reported, counted, failing only with --strict.
+    const warnings = lint(doc);
+    for (const w of warnings) {
+      process.stdout.write(`${w.code}: ${w.message} (line ${w.line})\n`);
+    }
+    if (warnings.length > 0) {
+      if (process.argv.includes("--strict")) process.exit(1);
+      process.stdout.write(`ok: no errors, ${warnings.length} warning(s)\n`);
+      break;
+    }
     process.stdout.write("ok: no diagnostics\n");
     break;
   }

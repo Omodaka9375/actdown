@@ -1,6 +1,6 @@
 export { parse } from "./parse.js";
 export { canonicalize, format, print, printBlock, toJSON } from "./canonical.js";
-export { ParseError } from "./diag.js";
+export { ParseError, lint } from "./diag.js";
 export { parseField, printLiteral } from "./literal.js";
 export { render, renderNode, renderMarkdown, renderBlock, type RenderOptions, type CapabilityRegistry, type Scope } from "./render.js";
 export {

@@ -24,6 +24,7 @@ import {
   format,
   print,
   toJSON,
+  lint,
   render,
   renderReactive,
 } from "./index.js";
@@ -43,7 +44,14 @@ type ToolArgs = { doc: string };
 /** Validate the input document; return diagnostics (empty when valid). */
 function checkDoc(input: string) {
   const result = parse(input);
-  return result.diagnostics.map((d) => ({
+  const hard = result.diagnostics.map((d) => ({
+    code: d.code,
+    message: d.message,
+    line: d.line,
+  }));
+  if (hard.length > 0) return hard;
+  // Review lints travel with the hard diagnostics (W_ prefix marks warnings).
+  return lint(result.doc).map((d) => ({
     code: d.code,
     message: d.message,
     line: d.line,
