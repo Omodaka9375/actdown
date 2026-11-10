@@ -15,17 +15,36 @@ header, `.ad` documents, and `data-ad-*` HTML attributes.
 
 ## Who is it for?
 
-The primary users are **developers building agent-facing tools and
-documents**, and the agents themselves:
+Every user below has the same underlying problem: **they want their agent to
+be able to offer an action safely, without giving it code execution or
+building a screen by hand.** Today they must choose between shipping agent
+code (dangerous, heavy) or giving the agent nothing (it becomes a text
+printer). actdown is the third option.
 
-- Agent platforms that need a compact, deterministic representation of a
-  page instead of a large and ambiguous HTML DOM.
-- Applications that want an agent to propose a form, dashboard, approval,
-  or other small interaction without giving it script execution.
-- Technical authors who want one document to render for people and expose
-  stable ids, typed state, and explicit actions to machines.
-- Tooling teams that need a common parser, canonical form, and conformance
-  suite across TypeScript and Rust/WASM.
+**Agent-platform developers.** They build the bot or copilot that calls real
+tools: deploy, refund, delete. Today every tool call happens silently, or
+they hand-build an approval screen per action. With actdown the agent
+proposes its own screen as a text file, and they write the capability wiring
+once: ten tools means ten short documents plus one shared renderer, not ten
+custom UIs.
+
+**Security and compliance reviewers.** They sign off on what agents may do.
+If an agent ships a JavaScript bundle with its approval form, review means
+auditing compiled code. With actdown the artifact is auditable text: the
+document lists every side effect it could ever have, ungranted capabilities
+refuse to run, and review is a diff. See the
+[approval demo](examples/mcp-approval/) for that flow end to end.
+
+**Internal-tools teams.** They maintain dashboards where staff approve agent
+proposals. Screens there are hand-coded React; every change needs a pull
+request and a deploy. actdown documents are data, not code: screen content
+ships as text, updates like content, renders with no build step, and still
+reads fine in a plain Markdown viewer.
+
+**Agent-framework authors.** They maintain an open-source agent library and
+cannot ship a UI framework inside it. Their library only emits text, which
+is enough: if the user's host understands ad, the text becomes buttons; if
+not, it degrades to readable Markdown. Zero dependency on this project.
 
 It is not a no-code website builder, a general replacement for React, or a
 way to run untrusted application code. End users interact with the HTML or
