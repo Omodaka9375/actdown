@@ -4,8 +4,9 @@
 
 use actdown::{
     compute_state, eval_expr, hydrate, hydrate_with_initial, parse, parse_field, parse_expr,
-    render, render_reactive, CapabilityRegistry, CapResult, EvalContext, Literal, Scope,
+    render, render_reactive, CapabilityRegistry, CapResult, Literal, Scope,
 };
+use actdown::expr::EvalContext;
 
 fn scope(pairs: &[(&str, Literal)]) -> Scope {
     pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
@@ -27,7 +28,7 @@ fn cap_registry_refuses_ungranted_capability() {
     // The registry is a HashMap (own keys only), so "constructor" cannot
     // resolve; firing an action whose capability is not granted must fail.
     let res = parse("```ad-action?name=constructor\nargs: {}\n---\nGo\n```");
-    let caps = CapabilityRegistry::new().grant("other", |_a, _s| Ok(CapResult::done()));
+    let caps = CapabilityRegistry::new().grant("other", |_a, _s| Ok(CapResult::value(Literal::Null)));
     let id = match &res.doc.nodes[0] {
         actdown::Node::Block(b) => b.id.clone(),
         _ => panic!("expected a block"),
@@ -93,7 +94,7 @@ fn on_submit_eq_form_parses_as_trigger() {
         actdown::Node::Block(b) => {
             assert!(b.attrs.contains_key("on:submit"));
         }
-        other => panic!("unexpected node kind"),
+        _other => panic!("unexpected node kind"),
     }
 }
 
@@ -155,13 +156,15 @@ fn utf16_string_ordering_matches_js() {
 fn computed_state_recomputes_after_patches() {
     let src = "```ad-state\ncount: 1\ntotal: {count + 1}\n```";
     let doc = parse(src).doc;
-    let rt = hydrate(doc, &CapabilityRegistry::new()).unwrap();
+    let caps = CapabilityRegistry::new();
+    let rt = hydrate(doc, &caps).unwrap();
     assert_eq!(rt.state().get("total"), Some(&Literal::Num(2.0)));
     // Re-hydrating with an initial simulates a patch (Rust caps are sync).
     let doc2 = parse(src).doc;
+    let caps2 = CapabilityRegistry::new();
     let rt2 = hydrate_with_initial(
         doc2,
-        &CapabilityRegistry::new(),
+        &caps2,
         scope(&[("count", Literal::Num(10.0))]),
     )
     .unwrap();
