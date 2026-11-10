@@ -57,7 +57,7 @@
   pre.out {
     position: absolute; inset: 0; margin: 0; padding: 12px 14px;
     font: inherit; font-size: 12px; line-height: 1.55;
-    color: var(--fg); white-space: pre; overflow: auto;
+    color: var(--fg); white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto;
   }
   pre.out .e { color: var(--warn); }
   select#examples {
@@ -70,11 +70,41 @@
     font-family: -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: #e6edf3; line-height: 1.55;
   }
   #htmlview h1, #htmlview h2 { color: var(--bright); margin: .6em 0 .3em; }
-  #htmlview p, #htmlview ul { margin: .4em 0; }
+  #htmlview p { margin: .5rem 0 .8rem; }
+  #htmlview ul, #htmlview ol { margin: .6rem 0 .9rem; padding-left: 1.5rem; }
+  #htmlview li { margin: .25rem 0; padding-left: .15rem; }
+  #htmlview li::marker { color: var(--accent); }
   #htmlview code { font-family: inherit; font-size: 12px; background: #161e28; padding: 1px 4px; border-radius: 3px; }
-  #htmlview table { border-collapse: collapse; margin: .6em 0; font-size: 12px; }
-  #htmlview th, #htmlview td { border: 1px solid #263041; padding: 4px 10px; text-align: left; }
+  #htmlview figure {
+    margin: 1rem 0; padding: .75rem; overflow-x: auto;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--pane);
+  }
+  #htmlview figure[data-ad-chart]::before {
+    content: attr(data-ad-chart) " chart"; display: block; margin-bottom: .5rem;
+    color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  }
+  #htmlview table { width: 100%; border-collapse: collapse; margin: .8rem 0; font-size: 12px; }
+  #htmlview figure table { margin: 0; }
+  #htmlview th, #htmlview td { border: 1px solid #263041; padding: 6px 10px; text-align: left; }
   #htmlview th { background: #141b25; color: var(--dim); }
+  #htmlview tbody tr:nth-child(even) { background: #0f141b66; }
+  #htmlview form {
+    display: grid; gap: .75rem; max-width: 30rem; margin: 1rem 0; padding: 1rem;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--pane);
+  }
+  #htmlview .ad-field { display: grid; gap: .3rem; }
+  #htmlview .ad-field > label { color: var(--dim); font-size: 11px; text-transform: capitalize; }
+  #htmlview .ad-field.ad-checkbox { display: flex; align-items: center; gap: .5rem; }
+  #htmlview form input:not([type="checkbox"]), #htmlview form textarea, #htmlview form select {
+    width: 100%; min-width: 0; padding: .45rem .55rem; border: 1px solid #30363d; border-radius: 6px;
+    background: var(--bg); color: var(--fg); font: inherit; font-size: 12px;
+  }
+  #htmlview form textarea { min-height: 6rem; resize: vertical; }
+  #htmlview form input[type="checkbox"] { width: 1rem; height: 1rem; margin: 0; accent-color: var(--accent); }
+  #htmlview form input:focus, #htmlview form textarea:focus, #htmlview form select:focus {
+    outline: 1px solid var(--blue); outline-offset: 1px;
+  }
+  #htmlview form button[type="submit"] { justify-self: start; margin-top: .25rem; }
   #htmlview button {
     font: inherit; font-size: 12px; padding: 5px 14px; margin: 3px 4px 3px 0;
     border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: var(--fg); cursor: pointer;
@@ -106,7 +136,6 @@
       <span class="label">output</span>
       <button class="tab on" id="tab-html">rendered</button>
       <button class="tab" id="tab-htmlstatic">html</button>
-      <button class="tab" id="htmlsrc" style="display:none" title="toggle source / rendered view">source</button>
       <button class="tab" id="tab-canonical">canonical</button>
       <button class="tab" id="tab-ast">ast</button>
     </div>
@@ -247,13 +276,11 @@ function run(renderFn) {
 
 // --- rendering pipeline -----------------------------------------------------
 let mode = "html";
-let htmlStaticSource = false;
 const els = {
   src: document.getElementById("src"),
   htmlview: document.getElementById("htmlview"),
   textout: document.getElementById("textout"),
   status: document.getElementById("status"),
-  htmlsrc: document.getElementById("htmlsrc"),
   examples: document.getElementById("examples"),
 };
 
@@ -262,16 +289,16 @@ function setMode(next) {
   for (const id of ["html", "htmlstatic", "canonical", "ast"]) {
     document.getElementById("tab-" + id).classList.toggle("on", id === next);
   }
-  const isDoc = next === "html" || (next === "htmlstatic" && !htmlStaticSource);
+  const isDoc = next === "html";
   els.htmlview.style.display = isDoc ? "" : "none";
   els.textout.style.display = isDoc ? "none" : "";
-  els.htmlsrc.style.display = next === "htmlstatic" ? "" : "none";
   update();
 }
 
 // Buttons do nothing in the playground (no capability host); wire them
 // so the disabled state is the visible truth rather than a dead click.
-function wireDocButtons() {
+// The engine's form output is label-free by contract; labels are preview-only.
+function wireDocView() {
   for (const b of els.htmlview.querySelectorAll("button[data-cap-missing]")) {
     b.title = "capability not granted: host decides";
   }
@@ -282,6 +309,77 @@ function wireDocButtons() {
         `<b>${(b.textContent || "").trim()}</b> &mdash; a host would grant or refuse it`;
     });
   }
+  for (const form of els.htmlview.querySelectorAll("form")) {
+    for (const control of form.querySelectorAll("input[name], textarea[name], select[name]")) {
+      const row = document.createElement("div");
+      const label = document.createElement("label");
+      const checkbox = control.getAttribute("type") === "checkbox";
+      row.className = checkbox ? "ad-field ad-checkbox" : "ad-field";
+      label.htmlFor = control.id;
+      label.textContent = control.getAttribute("name") ?? "";
+      control.before(row);
+      if (checkbox) row.append(control, label);
+      else row.append(label, control);
+    }
+  }
+}
+
+// Pretty-print the generated fragment without executing or normalizing it.
+// Block elements get their own indented lines; inline markup stays in flow.
+const BLOCK_TAGS = new Set([
+  "address", "article", "aside", "blockquote", "button", "dd", "div", "dl", "dt",
+  "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4",
+  "h5", "h6", "header", "hr", "input", "li", "main", "nav", "ol", "p", "pre",
+  "script", "section", "select", "table", "tbody", "textarea", "tfoot", "th", "thead", "tr", "ul",
+]);
+const VOID_TAGS = new Set([
+  "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+  "param", "source", "track", "wbr",
+]);
+
+function formatHtml(html) {
+  const lines = [];
+  let current = "";
+  let depth = 0;
+  const flush = () => {
+    if (current.trim() !== "") lines.push(current.trimEnd());
+    current = "";
+  };
+  const tokens = html.match(/<!--[\s\S]*?-->|<[^>]+>|[^<]+/g) ?? [];
+  for (const token of tokens) {
+    if (!token.startsWith("<")) {
+      const value = token.replace(/\s+/g, " ");
+      if (value.trim() !== "") current += current === "" ? value.trimStart() : value;
+      continue;
+    }
+    const closing = /^<\/\s*([a-zA-Z][\w-]*)/.exec(token);
+    const opening = closing === null ? /^<\s*([a-zA-Z][\w-]*)/.exec(token) : null;
+    const match = closing ?? opening;
+    if (match === null) {
+      flush();
+      lines.push("  ".repeat(depth) + token);
+      continue;
+    }
+    const tag = match[1].toLowerCase();
+    if (!BLOCK_TAGS.has(tag)) {
+      current += token;
+      continue;
+    }
+    if (closing !== null) {
+      depth = Math.max(0, depth - 1);
+      current = current === "" ? "  ".repeat(depth) + token : current + token;
+      flush();
+    } else if (VOID_TAGS.has(tag) || token.endsWith("/>")) {
+      flush();
+      lines.push("  ".repeat(depth) + token);
+    } else {
+      flush();
+      current = "  ".repeat(depth) + token;
+      depth += 1;
+    }
+  }
+  flush();
+  return lines.join("\n");
 }
 
 function update() {
@@ -305,7 +403,7 @@ function update() {
   }
   if (mode === "html") {
     els.htmlview.innerHTML = html;
-    wireDocButtons();
+    wireDocView();
     els.status.innerHTML =
       `parsed <b>ok</b> &mdash; rendered with the <b>Rust</b> engine (wasm) &mdash; ` +
       `<b>${html.length}</b> bytes of html`;
@@ -315,20 +413,9 @@ function update() {
       els.status.innerHTML = `render error: <span class="e">${lastError()}</span>`;
       return;
     }
-    if (htmlStaticSource) {
-      els.htmlview.style.display = "none";
-      els.textout.style.display = "";
-      els.textout.textContent = staticHtml;
-      els.status.innerHTML =
-        `parsed <b>ok</b> &mdash; static level-1 html source (no state applied)`;
-    } else {
-      els.htmlview.style.display = "";
-      els.textout.style.display = "none";
-      els.htmlview.innerHTML = staticHtml;
-      wireDocButtons();
-      els.status.innerHTML =
-        `parsed <b>ok</b> &mdash; static level-1 html, rendered as a plain no-JS consumer sees it (no state applied) &mdash; <b>${staticHtml.length}</b> bytes`;
-    }
+    els.textout.textContent = formatHtml(staticHtml);
+    els.status.innerHTML =
+      `parsed <b>ok</b> &mdash; static level-1 html source (no state applied)`;
   } else if (mode === "canonical") {
     const canonical = run("ad_format");
     els.textout.textContent = canonical ?? "";
@@ -345,11 +432,6 @@ function update() {
 for (const id of ["html", "htmlstatic", "canonical", "ast"]) {
   document.getElementById("tab-" + id).addEventListener("click", () => setMode(id));
 }
-els.htmlsrc.addEventListener("click", () => {
-  htmlStaticSource = !htmlStaticSource;
-  els.htmlsrc.textContent = htmlStaticSource ? "render" : "source";
-  update();
-});
 for (const [i, ex] of EXAMPLES.entries()) {
   const o = document.createElement("option");
   o.value = String(i);
