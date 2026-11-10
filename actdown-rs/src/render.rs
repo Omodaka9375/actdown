@@ -353,12 +353,34 @@ fn parse_opts(s: &str) -> Vec<(String, String)> {
     if s.trim().is_empty() {
         return map;
     }
-    for part in s.split(',') {
-        match part.find('=') {
-            None => map.push((part.trim().to_string(), String::new())),
-            Some(eq) => map.push((part[..eq].trim().to_string(), part[eq + 1..].trim().to_string())),
+    // Split on top-level commas only: brackets and quotes may nest commas
+    // (options=["a", "b"], pattern="[0-9]{2},[a-z]{2}").
+    let mut push = |map: &mut Vec<(String, String)>, part: &str| match part.find('=') {
+        None => map.push((part.trim().to_string(), String::new())),
+        Some(eq) => map.push((part[..eq].trim().to_string(), part[eq + 1..].trim().to_string())),
+    };
+    let mut depth = 0usize;
+    let mut in_str = false;
+    let mut start = 0usize;
+    for (i, &b) in s.as_bytes().iter().enumerate() {
+        if in_str {
+            if b == b'"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_str = true,
+            b'[' | b'{' | b'(' => depth += 1,
+            b']' | b'}' | b')' => depth = depth.saturating_sub(1),
+            b',' if depth == 0 => {
+                push(&mut map, &s[start..i]);
+                start = i + 1;
+            }
+            _ => {}
         }
     }
+    push(&mut map, &s[start..]);
     map
 }
 
@@ -413,6 +435,16 @@ fn render_controls(b: &BlockNode) -> String {
         let id = format!("{}.{}", fid, esc_attr(name));
         let req = if opts.iter().any(|(k, _)| k == "required") { " required" } else { "" };
         let opt = |k: &str| opts.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
+        // One optional HTML attribute from the control opts; "" when absent.
+        let attr_opt = |opts: &[(String, String)], name: &str| -> String {
+            match opts.iter().find(|(k, _)| k == name) {
+                Some((_, raw)) if !raw.is_empty() => {
+                    let v = raw.strip_prefix('"').and_then(|s| s.strip_suffix('"')).unwrap_or(raw);
+                    format!(" {}=\"{}\"", name, esc_attr(v))
+                }
+                _ => String::new(),
+            }
+        };
         match kind.as_str() {
             "input" => {
                 let ty = match opt("type") {
@@ -426,16 +458,44 @@ fn render_controls(b: &BlockNode) -> String {
                         }
                     },
                 };
+                // SPEC 4.3 validation opts: min, max, pattern, maxlength; value
+                // seeds the initial content. Attribute order is fixed (byte-exact ports).
+                let extra = format!(
+                    "{}{}{}{}{}",
+                    attr_opt(&opts, "min"),
+                    attr_opt(&opts, "max"),
+                    attr_opt(&opts, "pattern"),
+                    attr_opt(&opts, "maxlength"),
+                    attr_opt(&opts, "value"),
+                );
                 out.push(format!(
-                    "<input type=\"{}\" name=\"{}\" id=\"{}\"{}>",
+                    "<input type=\"{}\" name=\"{}\" id=\"{}\"{}{}>",
                     esc_attr(&ty),
                     esc_attr(name),
                     id,
-                    req
+                    req,
+                    extra
                 ));
             }
             "textarea" => {
-                out.push(format!("<textarea name=\"{}\" id=\"{}\"{}></textarea>", esc_attr(name), id, req));
+                let value = match opt("value") {
+                    Some(v) => {
+                        if v.starts_with('"') && v.ends_with('"') && v.len() >= 2 {
+                            v[1..v.len() - 1].to_string()
+                        } else {
+                            v
+                        }
+                    }
+                    None => String::new(),
+                };
+                out.push(format!(
+                    "<textarea name=\"{}\" id=\"{}\"{}{}>{}</textarea>",
+                    esc_attr(name),
+                    id,
+                    req,
+                    attr_opt(&opts, "maxlength"),
+                    esc(&value)
+                ));
             }
             "select" => {
                 let raw = opt("options").unwrap_or_else(|| "[]".to_string());

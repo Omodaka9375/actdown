@@ -30,6 +30,11 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   section: from body list markers, the `items` field, or `ordered: true`.
 - Conformance vector `0009-chart-and-list` locks both behaviors byte-exact
   across the TypeScript and Rust implementations.
+- `ad-form` controls now render the SPEC 4.3 validation options (`min=`,
+  `max=`, `pattern=`, `maxlength=`) as HTML attributes, and `value=` seeds
+  initial content (textarea uses it as its text). The control-option parser
+  splits only on top-level commas, so `options=["a", "b"]` and quoted
+  values containing commas work; vector `0010-form-controls` locks it.
 
 - Markdown superset with `ad-*` fenced blocks: state, data, action, form,
   table, image, link, chart, region (level 1), bindings, `when=`/`each=`

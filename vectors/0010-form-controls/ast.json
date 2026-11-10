@@ -1,0 +1,28 @@
+{
+  "ad": "0.1",
+  "nodes": [
+    {
+      "kind": "prose",
+      "md": "# Feedback"
+    },
+    {
+      "kind": "block",
+      "type": "form",
+      "id": "contact",
+      "attrs": {
+        "action": "cap:contact-form@v1"
+      },
+      "fields": {
+        "email": "input(email, required, maxlength=320)",
+        "score": "input(number, min=0, max=10)",
+        "code": "input(text, pattern=\"[A-Z]{4}\", value=\"ABCD\")",
+        "message": "textarea(maxlength=500, value=\"Type here\")",
+        "agree": "checkbox",
+        "channel": "select(options=[\"email\", \"slack\"], required)",
+        "send": "submit(label=\"Send\")"
+      },
+      "body": null,
+      "line": 3
+    }
+  ]
+}

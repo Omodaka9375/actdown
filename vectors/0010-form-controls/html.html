@@ -1,0 +1,10 @@
+<h1>Feedback</h1>
+<form data-ad-id="contact">
+<input type="email" name="email" id="contact.email" required maxlength="320">
+<input type="number" name="score" id="contact.score" min="0" max="10">
+<input type="text" name="code" id="contact.code" pattern="[A-Z]{4}" value="ABCD">
+<textarea name="message" id="contact.message" maxlength="500">Type here</textarea>
+<input type="checkbox" name="agree" id="contact.agree">
+<select name="channel" id="contact.channel" required><option>email</option><option>slack</option></select>
+<button type="submit" id="contact.send">Send</button>
+</form>

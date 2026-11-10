@@ -45,6 +45,11 @@
       "level": 1,
       "description": "ad-chart renders <figure data-ad-chart> with a <table> fallback (array rows + columns, object rows, flat scalars; mixed shape renders no table); ad-list renders <ul>/<ol> from body markers or the items field.",
       "goldens": ["ast.json", "canonical.ad", "html.html", "reactive.html"]
+    },
+    "0010-form-controls": {
+      "level": 1,
+      "description": "ad-form controls render SPEC 4.3 validation opts (required, min, max, pattern, maxlength) and value seeds; textarea value becomes initial content.",
+      "goldens": ["ast.json", "canonical.ad", "html.html", "reactive.html"]
     }
   }
 }

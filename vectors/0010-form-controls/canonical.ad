@@ -1,0 +1,13 @@
+# Feedback
+
+```ad-form?action=cap:contact-form@v1
+id: contact
+agree: checkbox
+channel: "select(options=[\"email\", \"slack\"], required)"
+code: "input(text, pattern=\"[A-Z]{4}\", value=\"ABCD\")"
+email: "input(email, required, maxlength=320)"
+message: "textarea(maxlength=500, value=\"Type here\")"
+score: "input(number, min=0, max=10)"
+send: "submit(label=\"Send\")"
+
+```

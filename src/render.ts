@@ -247,12 +247,22 @@ function renderControls(b: BlockNode): string {
     switch (kind) {
       case "input": {
         const type = opts.get("type") ?? (m === null ? "text" : m[2]!.split(",")[0]!.trim() || "text");
-        out.push(`<input type="${escAttr(type)}" name="${escAttr(name)}" id="${id}"${req}>`);
+        // SPEC 4.3 validation opts: min, max, pattern, maxlength; value seeds
+        // the initial content. Attribute order is fixed (byte-exact ports).
+        const extra =
+          attrOpt(opts, "min") +
+          attrOpt(opts, "max") +
+          attrOpt(opts, "pattern") +
+          attrOpt(opts, "maxlength") +
+          attrOpt(opts, "value");
+        out.push(`<input type="${escAttr(type)}" name="${escAttr(name)}" id="${id}"${req}${extra}>`);
         break;
       }
-      case "textarea":
-        out.push(`<textarea name="${escAttr(name)}" id="${id}"${req}></textarea>`);
+      case "textarea": {
+        const value = (opts.get("value") ?? "").replace(/^"(.*)"$/, "$1");
+        out.push(`<textarea name="${escAttr(name)}" id="${id}"${req}${attrOpt(opts, "maxlength")}>${esc(value)}</textarea>`);
         break;
+      }
       case "select": {
         const raw = opts.get("options") ?? "[]";
         const items: string[] = safeJsonArray(raw);
@@ -278,12 +288,40 @@ function renderControls(b: BlockNode): string {
 function parseOpts(s: string): Map<string, string> {
   const map = new Map<string, string>();
   if (s.trim() === "") return map;
-  for (const part of s.split(",")) {
+  // Split on top-level commas only: brackets and quotes may nest commas
+  // (options=["a", "b"], pattern="[0-9]{2},[a-z]{2}").
+  let depth = 0;
+  let inStr = false;
+  let start = 0;
+  const push = (part: string): void => {
     const eq = part.indexOf("=");
     if (eq === -1) map.set(part.trim(), "");
     else map.set(part.slice(0, eq).trim(), part.slice(eq + 1).trim());
+  };
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!;
+    if (inStr) {
+      if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "[" || c === "{" || c === "(") depth += 1;
+    else if (c === "]" || c === "}" || c === ")") depth = Math.max(0, depth - 1);
+    else if (c === "," && depth === 0) {
+      push(s.slice(start, i));
+      start = i + 1;
+    }
   }
+  push(s.slice(start));
   return map;
+}
+
+/** One optional HTML attribute from the control opts; "" when absent. */
+function attrOpt(opts: Map<string, string>, name: string): string {
+  const raw = opts.get(name);
+  if (raw === undefined || raw === "") return "";
+  const v = raw.replace(/^"(.*)"$/, "$1");
+  return ` ${name}="${escAttr(v)}"`;
 }
 
 function safeJsonArray(s: string): string[] {
