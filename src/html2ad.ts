@@ -157,7 +157,7 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
     for (const child of node.children) {
       if (typeof child === "string") {
         const text = textOf({ tag: "#t", attrs: {}, children: [child] }).replace(/\s+/g, " ");
-        if (text.trim() !== "") pushInline(text);
+        if (text.trim() !== "") pushInline(mdEscape(text));
         continue;
       }
       convert(child, listDepth);
@@ -263,6 +263,10 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
 }
 
 function tableBlock(el: HtmlNode): BlockNode {
+  // A literal `|` inside a cell must not become a column separator when the
+  // body is reparsed: escape it GFM-style (`\|`); renderTable/splitRow split
+  // pipe-aware and restore the literal.
+  const cellText = (s: string): string => s.replace(/\|/g, "\\|");
   const rowsOf = (section: HtmlNode | undefined): string[][] =>
     section === undefined
       ? []
@@ -271,7 +275,7 @@ function tableBlock(el: HtmlNode): BlockNode {
           .map((tr) =>
             tr.children
               .filter((c): c is HtmlNode => typeof c !== "string" && (c.tag === "td" || c.tag === "th"))
-              .map((cell) => inlineMd(cell).replace(/\s+/g, " ").trim()),
+              .map((cell) => cellText(inlineMd(cell).replace(/\s+/g, " ").trim())),
           );
   const section = (name: string) =>
     el.children.find((c): c is HtmlNode => typeof c !== "string" && c.tag === name);
@@ -323,8 +327,10 @@ function formBlock(form: HtmlNode, source: string, notes: string[]): BlockNode {
         const type = (c.attrs.type ?? "submit").toLowerCase();
         if (type === "submit") {
           const label = textOf(c).trim() || "Submit";
-          const key = slug(label) || "submit";
-          if (!(key in fields)) fields[key] = `submit(label=${JSON.stringify(label)})`;
+          const base = slug(label) || "submit";
+          let key = base;
+          for (let k = 2; Object.hasOwn(fields, key); k += 1) key = `${base}-${k}`;
+          fields[key] = `submit(label=${JSON.stringify(label)})`;
         }
       }
     }
@@ -352,8 +358,14 @@ function addControl(
     notes.push(`control without name dropped: <${el.tag}>`);
     return;
   }
-  const key = slug(name) || name;
-  if (key in fields) return;
+  // Field keys must match the field-line grammar (`^[a-z][a-z0-9-]*$`) so the
+  // canonical form reparses: `constructor` must not vanish via an inherited
+  // key, and numeric/non-ASCII names get a valid synthetic key.
+  let key = slug(name);
+  if (key === "" || !/^[a-z][a-z0-9-]*$/.test(key)) key = "control";
+  let unique = key;
+  for (let k = 2; Object.hasOwn(fields, unique); k += 1) unique = `${key}-${k}`;
+  key = unique;
   const req = el.attrs.required !== undefined ? ", required" : "";
   const max = el.attrs.maxlength !== undefined ? `, maxlength=${el.attrs.maxlength}` : "";
   if (el.tag === "input") {

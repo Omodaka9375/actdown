@@ -14,17 +14,20 @@ use crate::types::{AttrValue, BlockNode, Doc, FieldValue, Literal, Node, Scope};
 /// Async phases per action id: "pending" | "success" | "failure" (SPEC 4/7).
 pub type PhaseMap = indexmap::IndexMap<String, String>;
 
-/// Render context: the binding scope (None = level-1 static render) and the
-/// async phase map (None = every phase region renders hidden).
+/// Render context: the binding scope (None = level-1 static render), the
+/// async phase map (None = every phase region renders hidden), and the
+/// granted capability registry (None = every named capability renders
+/// enabled, SPEC 4.2).
 #[derive(Clone, Copy, Default)]
 pub struct RenderCtx<'a> {
     pub env: Option<&'a Scope>,
     pub phases: Option<&'a PhaseMap>,
+    pub registry: Option<&'a crate::runtime::CapabilityRegistry>,
 }
 
 impl<'a> RenderCtx<'a> {
     pub fn env(scope: &'a Scope) -> Self {
-        RenderCtx { env: Some(scope), phases: None }
+        RenderCtx { env: Some(scope), phases: None, registry: None }
     }
 }
 
@@ -40,9 +43,11 @@ fn esc_attr(s: &str) -> String {
 pub fn safe_url(u: &str) -> String {
     // Browsers strip tab/newline from URL attributes, so `jav\tascript:`
     // would pass the scheme check below and still become a live script URL.
-    // Strip them before the scheme checks (matches the TS fix).
+    // Strip them before the scheme checks (matches the TS fix). Leading and
+    // trailing C0 controls and spaces are stripped too: `\u0001javascript:`
+    // must not sneak a scheme past the filter.
     let stripped: String = u.chars().filter(|c| !matches!(c, '\t' | '\n' | '\r')).collect();
-    let t = stripped.trim();
+    let t: &str = stripped.trim_matches(|c: char| (c as u32) <= 0x20);
     let lower = t.to_ascii_lowercase();
     if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:") || lower.starts_with("tel:") {
         return t.to_string();
@@ -164,11 +169,28 @@ fn quote_re() -> &'static Regex {
 }
 
 /// One row of a GFM pipe table: strip the optional edge pipes, split, trim.
-fn split_row(s: &str) -> Vec<&str> {
+/// Pipe-aware: `\|` is an escaped literal pipe inside a cell (GFM), not a
+/// delimiter (matches the TS fix).
+fn split_row(s: &str) -> Vec<String> {
     let t = s.trim();
     let t = t.strip_prefix('|').unwrap_or(t);
     let t = t.strip_suffix('|').unwrap_or(t);
-    t.split('|').map(|c| c.trim()).collect()
+    let mut cells: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut chars = t.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' && chars.peek() == Some(&'|') {
+            cur.push('|');
+            chars.next();
+        } else if c == '|' {
+            cells.push(cur.trim().to_string());
+            cur = String::new();
+        } else {
+            cur.push(c);
+        }
+    }
+    cells.push(cur.trim().to_string());
+    cells
 }
 
 /// A delimiter row: `|---|:---:|` style; every cell is `:?-+:?`.
@@ -192,7 +214,7 @@ fn is_delim_row(s: &str) -> bool {
         })
 }
 
-fn prose_table(header: Vec<&str>, rows: &[Vec<&str>], ctx: RenderCtx) -> String {
+fn prose_table(header: Vec<String>, rows: &[Vec<String>], ctx: RenderCtx) -> String {
     let ths: Vec<String> = header.iter().map(|c| format!("<th>{}</th>", inline(c, ctx))).collect();
     let body: Vec<String> = rows
         .iter()
@@ -213,7 +235,7 @@ pub fn render_markdown(md: &str, ctx: RenderCtx) -> String {
     let mut out: Vec<String> = Vec::new();
     let mut para: Vec<&str> = Vec::new();
     let mut list: Option<(bool, Vec<&str>)> = None; // (ordered, items)
-    let mut fence: Option<(String, Vec<&str>)> = None; // (lang, lines)
+    let mut fence: Option<(String, char, usize, Vec<&str>)> = None; // (lang, marker char, marker len, lines)
 
     let fence_open_re = fence_md_re();
     fn flush_para(out: &mut Vec<String>, para: &mut Vec<&str>, ctx: RenderCtx) {
@@ -245,26 +267,28 @@ pub fn render_markdown(md: &str, ctx: RenderCtx) -> String {
             if let Some(c) = cf {
                 flush_para(&mut out, &mut para, ctx);
                 flush_list(&mut out, &mut list, ctx);
-                fence = Some((c.get(2).map_or("", |g| g.as_str()).to_string(), Vec::new()));
+                fence = Some((c.get(2).map_or("", |g| g.as_str()).to_string(), c.get(1).unwrap().as_str().chars().next().unwrap_or('`'), c.get(1).unwrap().as_str().chars().count(), Vec::new()));
                 continue;
             }
         } else {
-            // Reference quirk kept: when the fence has a language, ANY fence
-            // line closes it; without one only backtick fences close.
-            let closing = match (cf, fence.as_ref()) {
-                (Some(c), Some((lang, _))) => {
-                    let marker = c.get(1).unwrap().as_str();
-                    if lang.is_empty() { marker.starts_with('`') } else { true }
+            // CommonMark parity (matches the TS port): the closing fence must
+            // be the same character and at least as long as the opening one.
+            let closing = match cf {
+                Some(c) => {
+                    let marker = c.get(1).map(|m| m.as_str()).unwrap_or("");
+                    let (ch, open_len) = (fence.1, fence.2);
+                    marker.starts_with(ch)
+                        && marker.chars().take_while(|&x| x == ch).count() >= open_len
                 }
-                _ => false,
+                None => false,
             };
             if closing {
-                let (lang, content) = fence.take().unwrap();
+                let (lang, _, _, content) = fence.take().unwrap();
                 let class =
                     if lang.is_empty() { String::new() } else { format!(" class=\"language-{}\"", esc_attr(&lang)) };
                 out.push(format!("<pre><code{}>{}</code></pre>", class, esc(&content.join("\n"))));
             } else {
-                fence.as_mut().unwrap().1.push(ln);
+                fence.as_mut().unwrap().3.push(ln);
             }
             continue;
         }
@@ -274,7 +298,7 @@ pub fn render_markdown(md: &str, ctx: RenderCtx) -> String {
         if ln.contains('|') && i + 1 < lines.len() && is_delim_row(lines[i + 1]) {
             flush_para(&mut out, &mut para, ctx);
             flush_list(&mut out, &mut list, ctx);
-            let mut rows: Vec<Vec<&str>> = Vec::new();
+            let mut rows: Vec<Vec<String>> = Vec::new();
             let mut j = i + 2;
             while j < lines.len() && !lines[j].trim().is_empty() && lines[j].contains('|') {
                 rows.push(split_row(lines[j]));
@@ -530,10 +554,24 @@ fn render_controls(b: &BlockNode) -> String {
 
 fn render_action(b: &BlockNode, ctx: RenderCtx) -> String {
     let label = bind(b.body.as_deref().unwrap_or(""), ctx);
+    // SPEC 4.2: an action whose capability is not registered renders
+    // disabled with data-cap-missing (parity with the TS port).
+    let cap = b.attrs.get("name").map(|v| attr_value_plain(v)).unwrap_or_default();
+    let known = cap.is_empty() || ctx.registry.map_or(true, |r| r.has(&cap));
+    let missing = if known { String::new() } else { " data-cap-missing".to_string() };
+    let disabled = if known { String::new() } else { " disabled".to_string() };
     if let Some(href) = b.attrs.get("href") {
-        return format!("<a href=\"{}\" {}>{}</a>", esc_attr(&safe_url(&attr_value(href))), data_attrs(b), label);
+        return format!("<a href=\"{}\" {}{}>{}</a>", esc_attr(&safe_url(&attr_value(href))), data_attrs(b), missing, label);
     }
-    format!("<button {}>{}</button>", data_attrs(b), label)
+    format!("<button {}{}{}>{}</button>", data_attrs(b), missing, disabled, label)
+}
+
+/// An attr value as its plain string form (expressions keep their raw text).
+fn attr_value_plain(v: &AttrValue) -> String {
+    match v {
+        AttrValue::Str(s) => s.clone(),
+        AttrValue::Expr(e) => format!("{{{}}}", e.raw),
+    }
 }
 
 fn table_sep_re() -> &'static Regex {
@@ -726,11 +764,30 @@ fn render_list_block(b: &BlockNode, ctx: RenderCtx) -> String {
 
 fn render_data_block(b: &BlockNode) -> String {
     let json = js_stringify_fields(&b.fields);
-    format!("<script type=\"application/x-ad-data\" {}>{}</script>", data_attrs(b), esc(&json))
+    // Inside a raw-text <script> the HTML parser does not decode entities,
+    // so esc() would corrupt published values. JSON-escape instead (matches
+    // the TS fix): \u00XX keeps JSON.parse correct while staying HTML-inert.
+    let inert = json
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('&', "\\u0026")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029");
+    format!("<script type=\"application/x-ad-data\" {}>{}</script>", data_attrs(b), inert)
+}
+
+/// Display a field's value (SPEC 11): a quoted string shows its actual
+/// content, not its source serialization; printLiteral is for canonical
+/// text only (matches the TS displayLiteral fix).
+fn display_field(v: &FieldValue) -> String {
+    match v {
+        FieldValue::Lit(Literal::Str(s)) => s.clone(),
+        other => print_literal(other),
+    }
 }
 
 fn field_str(b: &BlockNode, key: &str) -> Option<String> {
-    b.fields.get(key).map(print_literal)
+    b.fields.get(key).map(display_field)
 }
 
 fn render_block(b: &BlockNode, ctx: RenderCtx) -> String {

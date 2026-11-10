@@ -51,8 +51,11 @@ function printProse(md: string): string {
   const lines = md.split("\n").map((l) => {
     const m = /[ \t]+$/.exec(l);
     if (!m) return l;
-    // Exactly two trailing spaces is a hard break; everything else is stripped.
-    return m[0] === "  " ? l : l.slice(0, l.length - m[0].length);
+    // A trailing run of 2+ spaces is a CommonMark hard break: normalize every
+    // qualifying run to exactly two spaces so meaning survives printing
+    // (three trailing spaces degrade to a hard break too, not to nothing).
+    const spacesOnly = !m[0].includes("\t");
+    return spacesOnly && m[0].length >= 2 ? `${l.slice(0, l.length - m[0].length)}  ` : l.slice(0, l.length - m[0].length);
   });
   while (lines.length > 0 && lines[0]!.trim() === "") lines.shift();
   while (lines.length > 0 && lines[lines.length - 1]!.trim() === "") lines.pop();
@@ -80,6 +83,7 @@ function genId(b: BlockNode): string {
 
 export function canonicalize(doc: Doc): Doc {
   const seen = new Set<string>();
+  const renames = new Map<string, string>();
   const nodes = doc.nodes.map((n) => {
     if (n.kind !== "block" || isForeign(n)) return n;
     let id = n.id === "" ? genId(n) : n.id;
@@ -88,10 +92,22 @@ export function canonicalize(doc: Doc): Doc {
     if (seen.has(id)) {
       const base = id;
       for (let k = 2; seen.has(id); k += 1) id = `${base}-${k}`;
+      renames.set(base, id);
     }
     seen.add(id);
     return id === n.id ? n : { ...n, id };
   });
+  // Renaming a duplicate id must update every cross-reference to it in the
+  // same pass, or `ad-region for:` would dangle after canonicalization.
+  if (renames.size > 0) {
+    for (const n of nodes) {
+      if (n.kind !== "block" || isForeign(n)) continue;
+      const forVal = n.fields.for;
+      if (typeof forVal === "string" && renames.has(forVal)) {
+        n.fields.for = renames.get(forVal)!;
+      }
+    }
+  }
   return { ad: doc.ad, nodes };
 }
 

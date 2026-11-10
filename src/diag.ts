@@ -1,4 +1,5 @@
 import { parseExpr } from "./expr.js";
+import { parseEach } from "./react.js";
 import type { BlockNode, Doc, Diagnostic, Expr, ForeignNode, Literal, Node } from "./types.js";
 
 export class ParseError extends Error {
@@ -61,19 +62,22 @@ export function lint(doc: Doc): Diagnostic[] {
         line: b.line,
       });
     }
-    // when=/each= are expressions normalized into fields (SPEC 10).
+    // when=/each= are expressions normalized into fields (SPEC 10). For
+    // `each`, the field is a repetition declaration (`item in expr`): lint
+    // only the expression portion, so a valid declaration is not flagged.
     for (const key of ["when", "each"] as const) {
       const v = b.fields[key];
-      if (v !== undefined && isExprVal(v)) {
-        try {
-          parseExpr(v.raw);
-        } catch (err: unknown) {
-          out.push({
-            code: "W_EXPR_SYNTAX",
-            message: `${key}="${v.raw}" does not parse: ${err instanceof Error ? err.message : String(err)}`,
-            line: b.line,
-          });
-        }
+      if (v === undefined || !isExprVal(v)) continue;
+      const raw = key === "each" ? parseEach(v.raw)?.expr : v.raw;
+      if (raw === undefined) continue;
+      try {
+        parseExpr(raw);
+      } catch (err: unknown) {
+        out.push({
+          code: "W_EXPR_SYNTAX",
+          message: `${key}="${v.raw}" does not parse: ${err instanceof Error ? err.message : String(err)}`,
+          line: b.line,
+        });
       }
     }
     if (b.type === "action") {

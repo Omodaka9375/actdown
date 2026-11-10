@@ -48,6 +48,12 @@ fn on_event_line_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"^on:(click|submit|change|load):[ \t]*(.*)$").unwrap())
 }
 
+/// SPEC 4.3 field form: `on:submit="expr"` (equals + quoted expression).
+fn on_event_eq_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r#"^on:(click|submit|change|load)=[ \t]*(.*)$"#).unwrap())
+}
+
 fn field_line_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"^([a-z][a-z0-9-]*):[ \t]*(.*)$").unwrap())
@@ -284,6 +290,16 @@ fn parse_block(
                 ev.get(1).unwrap().as_str().to_string(),
                 ev.get(2).unwrap().as_str().trim().to_string(),
             );
+            current_key = None;
+            continue;
+        }
+        // SPEC 4.3: `on:submit="expr"` (equals + quoted expression).
+        if let Some(ev) = on_event_eq_re().captures(ln) {
+            let mut v = ev.get(2).unwrap().as_str().trim().to_string();
+            if v.len() >= 2 && v.starts_with('"') && v.ends_with('"') {
+                v = v[1..v.len() - 1].to_string();
+            }
+            events.insert(ev.get(1).unwrap().as_str().to_string(), v);
             current_key = None;
             continue;
         }

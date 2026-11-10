@@ -8,6 +8,9 @@ import { canonicalize, print, toJSON } from "./canonical.js";
 import { renderReactive } from "./react.js";
 import { htmlToDoc } from "./html2ad.js";
 import { lookup } from "node:dns/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { Readable } from "node:stream";
 import type { Doc } from "./types.js";
 
 export type EdgeErrorCode =
@@ -205,6 +208,79 @@ async function resolveChecked(
   }
 }
 
+/**
+ * Default fetcher: a pinned-connection request. DNS is resolved by the same
+ * validating path as the pre-flight check, but the connection itself dials
+ * the validated address, so a DNS rebinding attack between check and connect
+ * cannot reach a private service. Host and TLS SNI stay the original
+ * hostname (certificate validation is unaffected); the redirect chain is
+ * re-validated by transcodeUrl per hop because this fetcher never follows
+ * redirects (matching transcodeUrl's redirect: "manual" contract).
+ */
+function pinnedFetch(
+  resolver: (hostname: string) => Promise<{ address: string; family: number }[]>,
+  validate: boolean,
+): typeof fetch {
+  return async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
+    const u = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    const mod = u.protocol === "https:" ? httpsRequest : httpRequest;
+    const records = await (validate
+      ? resolver(u.hostname)
+      : lookup(u.hostname, { all: true, verbatim: true }));
+    if (validate) {
+      for (const r of records) {
+        if (isPrivateHost(r.address)) {
+          throw new EdgeError("E_EDGE_PRIVATE", `hostname ${u.hostname} resolves to private address ${r.address}`, 403);
+        }
+      }
+    }
+    const record = records[0]!;
+    const headers = { ...(init?.headers as Record<string, string> | undefined) };
+    return await new Promise<Response>((resolve, reject) => {
+      const req = mod(
+        u,
+        {
+          method: init?.method ?? "GET",
+          headers,
+          // Dial the validated address; servername keeps SNI = hostname.
+          host: record.address,
+          servername: u.protocol === "https:" ? u.hostname : undefined,
+          setHost: true,
+          lookup: (_host: string, _opts: unknown, cb: (err: NodeJS.ErrnoException | null, addr: string, family: number) => void) => {
+            // The address is already pinned; hand it straight through.
+            cb(null, record.address, record.family);
+          },
+        },
+        (res) => {
+          const status = res.statusCode ?? 0;
+          const respHeaders = new Headers();
+          for (const [k, v] of Object.entries(res.headers)) {
+            if (v === undefined) continue;
+            respHeaders.set(k, Array.isArray(v) ? v.join(", ") : v);
+          }
+          const body = status === 204 || status === 304 ? null : (Readable.toWeb(res) as ReadableStream<Uint8Array>);
+          const resp = new Response(body, { status, headers: respHeaders });
+          // transcodeUrl falls back to the requested URL when resp.url is "".
+          Object.defineProperty(resp, "url", { value: u.toString(), configurable: true });
+          resolve(resp);
+        },
+      );
+      req.on("error", reject);
+      const signal = init?.signal;
+      if (signal) {
+        if (signal.aborted) {
+          req.destroy(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
+        } else {
+          signal.addEventListener("abort", () => {
+            req.destroy(signal.reason instanceof Error ? signal.reason : new Error("aborted"));
+          });
+        }
+      }
+      req.end();
+    });
+  };
+}
+
 export interface TranscodeResult {
   /** The final URL after redirects. */
   source: string;
@@ -224,10 +300,13 @@ export interface TranscodeResult {
  */
 export async function transcodeUrl(url: string, opts: EdgeOptions = {}): Promise<TranscodeResult> {
   const cfg = { ...DEFAULTS, ...opts };
-  const fetcher = opts.fetcher ?? fetch;
   // DNS is checked per host (initial + every hop); injectable for tests.
   const defaultResolver = (h: string) => lookup(h, { all: true, verbatim: true });
   const resolver = opts.resolver ?? defaultResolver;
+  // The default fetcher pins the connection to a validated address, closing
+  // the resolve-then-connect rebinding window. An injected fetcher (tests)
+  // keeps its own semantics.
+  const fetcher = opts.fetcher ?? pinnedFetch(resolver, !opts.allowPrivate);
   const dnsCheck = (host: string): Promise<void> =>
     opts.allowPrivate ? Promise.resolve() : resolveChecked(host, resolver);
 

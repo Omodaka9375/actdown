@@ -1,6 +1,10 @@
 import { display, evaluate, parseExpr } from "./expr.js";
 import { hydrate, type Runtime, type RuntimeOptions } from "./runtime.js";
-import type { BlockNode, Doc, Literal, Node } from "./types.js";
+import { parseEach } from "./react.js";
+import type { BlockNode, Doc, Expr, Literal, Node } from "./types.js";
+
+const isExprVal = (v: unknown): v is Expr =>
+  v !== null && typeof v === "object" && (v as Expr).kind === "expr";
 
 /**
  * SPEC 11: the DOM adapter. Instead of re-rendering whole fragments, it maps
@@ -23,6 +27,12 @@ export interface DomElementView {
   value?: string;
   /** Checkbox state. */
   checked?: boolean;
+  /**
+   * `HTMLElement.closest`; optional. When present, the adapter resolves the
+   * `each=` clone an element belongs to so bindings inside repeated blocks
+   * keep their `item`/`index` scope across `sync()`.
+   */
+  closest?(selector: string): DomElementView | null;
 }
 
 /** Extract a form's field values on submit (SPEC 4.3 `$fields`). */
@@ -95,23 +105,70 @@ export function hydrateDom(
 
   const collect = opts.collectFields ?? collectNamed;
 
+  // Clone resolution: an id is an `each=` clone only when it is NOT itself a
+  // declared block id (exact ids always win over the `-N` suffix) and it
+  // matches `${base}-${n}` for a declared base. A real block named "job-1"
+  // next to a base "job" is therefore never mistaken for a clone.
+  const cloneOf = (id: string): { base: BlockNode; index: number } | null => {
+    if (blocks.has(id)) return null;
+    const m = /^(.*)-(\d+)$/.exec(id);
+    if (m === null) return null;
+    const base = blocks.get(m[1]!);
+    if (base === undefined) return null;
+    return { base, index: Number(m[2]) };
+  };
+
+  /** The base block's `each=` declaration, or null. */
+  const eachSpecOf = (base: BlockNode): { item: string; index: string; expr: string } | null => {
+    const each = base.fields.each;
+    if (each === undefined) return null;
+    const raw = typeof each === "string" ? each : isExprVal(each) ? each.raw : null;
+    return raw === null ? null : parseEach(raw);
+  };
+
+  /** The clone's item/index overlay, resolved against current state. */
+  const itemScopeOf = (base: BlockNode, index: number, scope: Record<string, Literal>): Record<string, Literal> => {
+    const spec = eachSpecOf(base);
+    const out: Record<string, Literal> = {};
+    if (spec === null) return out;
+    try {
+      const items = evaluate(parseExpr(spec.expr), { scope });
+      if (Array.isArray(items) && index < items.length) {
+        out[spec.item] = items[index]!;
+        out[spec.index] = index;
+      }
+    } catch {
+      // Unresolvable item: bindings inside the clone fall back to document scope.
+    }
+    return out;
+  };
+
   root.querySelectorAll("[data-ad-id]").forEach((el) => {
     const id = el.getAttribute("data-ad-id");
     if (id === null) return;
-    // `each=` repeats a block as `${id}-${index}`: resolve the source block
-    // and expose the clone index as `$index` so handlers can act on the item.
-    const m = /^(.*)-(\d+)$/.exec(id);
-    const base = m !== null && blocks.has(m[1]!) ? m[1]! : id;
-    const index = base === id ? undefined : Number(m![2]);
-    const block = blocks.get(base);
-    if (block === undefined) return;
-    for (const ev of eventsOf(block)) {
+    const clone = cloneOf(id);
+    const base = clone === null ? blocks.get(id) : clone.base;
+    if (base === undefined) return;
+    const index = clone === null ? undefined : clone.index;
+    for (const ev of eventsOf(base)) {
       el.addEventListener(ev, (raw) => {
         if (ev === "submit") preventDefault(raw);
         const dollar: Record<string, Literal> = {};
-        if (ev === "submit" && block.type === "form") dollar.fields = collect(el);
-        if (index !== undefined) dollar.index = index;
-        void runtime.fire(base, ev, dollar).then(sync, sync);
+        if (ev === "submit" && base.type === "form") dollar.fields = collect(el);
+        if (index !== undefined) {
+          dollar.index = index;
+          // `$item` must be visible to handlers inside a clone: resolved
+          // against the current state at fire time, not hydration time.
+          const spec = eachSpecOf(base);
+          const item = spec === null ? undefined : itemScopeOf(base, index, runtime.state())[spec.item];
+          if (item !== undefined) dollar.item = item;
+        }
+        // fire() sets pending phases synchronously before its first await,
+        // so an immediate sync shows the pending state; the settle sync
+        // shows the final phase.
+        const fired = runtime.fire(base.id, ev, dollar);
+        sync();
+        void fired.then(sync, sync);
       });
     }
   });
@@ -123,7 +180,21 @@ export function hydrateDom(
       if (raw === null) return;
       let val = "";
       try {
-        val = display(evaluate(parseExpr(raw), { scope }));
+        // A binding inside an `each=` clone evaluates with the clone's
+        // item/index overlay, so `{item}` labels survive every sync pass
+        // instead of being erased to E_BIND_UNKNOWN -> "".
+        let env = scope;
+        if (el.closest !== undefined) {
+          const owner = el.closest("[data-ad-id]");
+          const oid = owner === null ? null : owner.getAttribute("data-ad-id");
+          if (oid !== null) {
+            const clone = cloneOf(oid);
+            if (clone !== null) {
+              env = { ...scope, ...itemScopeOf(clone.base, clone.index, scope) };
+            }
+          }
+        }
+        val = display(evaluate(parseExpr(raw), { scope: env }));
       } catch {
         val = "";
       }

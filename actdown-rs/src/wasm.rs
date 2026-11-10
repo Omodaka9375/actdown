@@ -44,9 +44,38 @@ pub extern "C" fn ad_alloc(len: usize) -> *mut u8 {
     Box::into_raw(buf.into_boxed_slice()) as *mut u8
 }
 
+/// Free a buffer previously returned by `ad_alloc` (len must match the
+/// allocation). Without this every input buffer leaked; the playground
+/// calls it after each parse.
+#[no_mangle]
+pub unsafe extern "C" fn ad_free(ptr: *mut u8, len: usize) {
+    if ptr.is_null() || len == 0 {
+        return;
+    }
+    unsafe {
+        let slice = std::slice::from_raw_parts_mut(ptr, len);
+        drop(Box::from_raw(slice));
+    }
+}
+
 /// Parse the host-written `.ad` text and keep the canonicalized document.
 #[no_mangle]
-pub extern "C" fn ad_parse(input: *const u8, len: usize) -> u32 {
+pub unsafe extern "C" fn ad_parse(input: *const u8, len: usize) -> u32 {
+    // A null pointer is only valid at len 0 (the empty-input path); a null
+    // with a non-zero length would violate from_raw_parts' contract.
+    if input.is_null() {
+        if len == 0 {
+            let result = parse("");
+            if !result.diagnostics.is_empty() {
+                return set_err("empty input produced diagnostics (unexpected)".into());
+            }
+            let doc = canonicalize(&result.doc);
+            DOC.with(|slot| *slot.borrow_mut() = Some(doc));
+            ERR.with(|err| *err.borrow_mut() = None);
+            return 0;
+        }
+        return set_err("null input pointer with non-zero length".into());
+    }
     let bytes = unsafe { slice::from_raw_parts(input, len) };
     let input = match std::str::from_utf8(bytes) {
         Ok(s) => s,

@@ -5,14 +5,39 @@ import type { Expr, Literal } from "./types.js";
  * SPEC 4.1: JSON literals plus unquoted bare words. A value starting with
  * `{` that is not valid JSON is stored as an expression (SPEC 9).
  */
+/** JSON.parse accepts 1e400 as Infinity; a non-finite cannot round-trip
+ * (JSON.stringify turns it into null), so any number anywhere in the parsed
+ * value must be finite. */
+function assertFinite(v: unknown, line: number): void {
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) {
+      throw new ParseError("E_BAD_LITERAL", `number out of range: ${String(v)}`, line);
+    }
+    return;
+  }
+  if (Array.isArray(v)) {
+    for (const item of v) assertFinite(item, line);
+    return;
+  }
+  if (v !== null && typeof v === "object") {
+    for (const item of Object.values(v as Record<string, unknown>)) assertFinite(item, line);
+  }
+}
+
 export function parseField(value: string, line: number): Literal | Expr {
   const s = value.trim();
   if (s === "") return "";
   const c = s[0]!;
   if (c === '"' || c === "[" || c === "{") {
     try {
-      return JSON.parse(s) as Literal;
-    } catch {
+      const parsed = JSON.parse(s) as Literal;
+      // Nested non-finite numbers bypass the scalar check below (e.g.
+      // "[1e400]" -> [Infinity]) and would silently print as null.
+      assertFinite(parsed, line);
+      return parsed;
+    } catch (err: unknown) {
+      // Validation failures (nested non-finite) are already ParseErrors.
+      if (err instanceof ParseError) throw err;
       if (c === '"') {
         throw new ParseError("E_UNTERMINATED_STRING", "unterminated string literal", line);
       }

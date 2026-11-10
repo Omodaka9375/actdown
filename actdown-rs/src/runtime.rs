@@ -56,6 +56,11 @@ impl CapabilityRegistry {
     fn get(&self, name: &str) -> Option<&CapFn> {
         self.caps.get(name).map(|b| b.as_ref())
     }
+
+    /// SPEC 4.2 rendering: does the registry grant this capability name?
+    pub fn has(&self, name: &str) -> bool {
+        self.caps.contains_key(name)
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -318,19 +318,31 @@ const RESOURCES: Record<
 // --- JSON-RPC plumbing ------------------------------------------------------
 const SERVER_INFO = { name: "actdown", version: "0.1.0" };
 
+/** A JSON-RPC id must be a string, a finite number, or null; anything else
+ * (objects, arrays, huge values) is sanitized to null so the reply itself
+ * can always serialize and a malformed id can never kill the process. */
+function safeId(id: unknown): string | number | null {
+  if (typeof id === "string") return id;
+  if (typeof id === "number" && Number.isFinite(id)) return id;
+  return null;
+}
+
 function reply(id: unknown, result: unknown): void {
-  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: safeId(id), result }) + "\n");
 }
 
 function fail(id: unknown, code: number, message: string): void {
   process.stdout.write(
-    JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }) + "\n",
+    JSON.stringify({ jsonrpc: "2.0", id: safeId(id), error: { code, message } }) + "\n",
   );
 }
 
 function handle(msg: JSONRPCRequest): void {
   const { id, method, params } = msg;
-  if (method === undefined) return;
+  if (typeof method !== "string") {
+    if (id !== undefined) fail(id, -32600, "invalid request: method must be a string");
+    return;
+  }
   if (method === "initialize") {
     reply(id, {
       protocolVersion: params?.protocolVersion ?? "2025-06-18",
@@ -406,7 +418,10 @@ rl.on("line", (line) => {
   try {
     msg = JSON.parse(trimmed) as JSONRPCRequest;
   } catch {
-    return; // not JSON: ignore, a stdio MCP stream must stay silent otherwise
+    // Not JSON: answer with a protocol error (id unknown, so null) rather
+    // than dropping the frame silently - a stuck client deserves a reply.
+    fail(null, -32700, "parse error");
+    return;
   }
   try {
     handle(msg);

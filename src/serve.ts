@@ -72,7 +72,14 @@ pane shows the canonical text.</p>
 </main></body></html>`;
 }
 
-function send(res: ServerResponse, status: number, body: string, contentType: string, extraHeaders: Record<string, string> = {}): void {
+function send(
+  res: ServerResponse,
+  status: number,
+  body: string,
+  contentType: string,
+  extraHeaders: Record<string, string> = {},
+  trust: "untrusted" | "trusted" = "untrusted",
+): void {
   const headers: Record<string, string> = {
     "content-type": contentType,
     "x-content-type-options": "nosniff",
@@ -81,8 +88,13 @@ function send(res: ServerResponse, status: number, body: string, contentType: st
     ...extraHeaders,
   };
   if (contentType.startsWith("text/html")) {
-    // Transcoded content is untrusted: it must never run script on this origin.
-    headers["content-security-policy"] = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
+    // Two policies: transcoded content is untrusted and must never run
+    // script on this origin; the gateway's own UI is trusted and needs
+    // form-action + frame-src so its form and both iframes work.
+    headers["content-security-policy"] =
+      trust === "trusted"
+        ? "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-src 'self'"
+        : "sandbox; default-src 'none'; style-src 'unsafe-inline'";
   }
   res.writeHead(status, headers);
   res.end(body);
@@ -127,12 +139,28 @@ function presentedToken(req: IncomingMessage, u: URL): string | null {
   return u.searchParams.get("token");
 }
 
-/** u.search with any token parameter value masked, for request logs. */
+/** u.search with any token parameter value masked and any credential-bearing
+ * parameter value sanitized, for request logs. A nested `?url=` value can
+ * carry userinfo or its own token; masking only the outer token would still
+ * log secrets. */
 function redactedSearch(u: URL): string {
   if (u.search === "") return "";
   const params = new URLSearchParams(u.search);
-  if (params.has("token")) params.set("token", "REDACTED");
+  for (const [k, v] of params) {
+    if (k === "token") params.set(k, "REDACTED");
+    else if (v.includes("://")) params.set(k, v.replace(/:\/\/[^@/?#]*@/g, "://REDACTED@"));
+  }
   return `?${params.toString()}`;
+}
+
+/** A URL for logs: credentials stripped, query omitted. */
+function loggableSource(source: string): string {
+  try {
+    const u = new URL(source);
+    return `${u.protocol}//${u.host}${u.pathname}`;
+  } catch {
+    return "(unparsed source)";
+  }
 }
 
 export interface ServeOptions extends EdgeOptions {
@@ -204,7 +232,16 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
     return true;
   };
   return createServer((req: IncomingMessage, res: ServerResponse) => {
-    const u = new URL(req.url ?? "/", "http://localhost");
+    let u: URL;
+    try {
+      u = new URL(req.url ?? "/", "http://localhost");
+    } catch {
+      // Malformed request targets (e.g. `GET //`) must not throw outside the
+      // async error handler: an uncaught exception before authentication
+      // kills the process instead of answering 400.
+      send(res, 400, JSON.stringify({ code: "E_EDGE_URL", message: "malformed request target" }), "application/json; charset=utf-8");
+      return;
+    }
     res.on("finish", () => {
       log(`${new Date().toISOString()} ${req.method} ${u.pathname}${redactedSearch(u)} -> ${res.statusCode}`);
     });
@@ -252,7 +289,7 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
           return;
         }
         case "/": {
-          send(res, 200, viewPage(null, authToken ?? null), "text/html; charset=utf-8");
+          send(res, 200, viewPage(null, authToken ?? null), "text/html; charset=utf-8", {}, "trusted");
           return;
         }
         case "/view": {
@@ -276,7 +313,7 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
               inFlight -= 1;
             }
           }
-          send(res, 200, viewPage(target, authToken ?? null), "text/html; charset=utf-8");
+          send(res, 200, viewPage(target, authToken ?? null), "text/html; charset=utf-8", {}, "trusted");
           return;
         }
         case "/transcode": {
@@ -293,7 +330,9 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
           try {
             const result = await transcodeUrl(target, opts);
             const { body, contentType } = formatConversion(result, format);
-            log(`${new Date().toISOString()} format=${format} source=${result.source}`);
+            // Query omitted and credentials stripped: upstream URLs may
+            // carry signed tokens or userinfo and must not reach the logs.
+            log(`${new Date().toISOString()} format=${format} source=${loggableSource(result.source)}`);
             send(res, 200, body, contentType);
           } finally {
             inFlight -= 1;

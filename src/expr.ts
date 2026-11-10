@@ -261,7 +261,10 @@ class Parser {
         const args: ExprAst[] = [];
         if (!this.atOp(")")) {
           for (;;) {
-            args.push(this.or());
+            // Call arguments nest like any other subexpression: they must
+            // count toward the parse depth budget (SEC-4), or deeply nested
+            // call chains overflow the stack below the guard.
+            args.push(this.nested(() => this.or()));
             if (this.atOp(",")) {
               this.next();
               continue;
@@ -361,20 +364,30 @@ export function parseExpr(raw: string): ExprAst {
 // Evaluator
 // ---------------------------------------------------------------------------
 
-function deepEqual(a: Literal, b: Literal): boolean {
+/**
+ * Structural equality. Own keys only on both sides (inherited members must
+ * never satisfy a comparison), and budgeted: a degenerate deep comparison
+ * must not run outside the expression's step accounting (SEC-4).
+ */
+function deepEqual(a: Literal, b: Literal, budget: { steps: number; max: number }): boolean {
+  budget.steps += 1;
+  if (budget.steps > budget.max) {
+    throw new ExprError("E_EXPR_STEP", "expression step budget exceeded");
+  }
   if (a === b) return true;
   if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) {
     return false;
   }
   if (Array.isArray(a) || Array.isArray(b)) {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-    return a.every((v, i) => deepEqual(v, b[i] as Literal));
+    return a.every((v, i) => deepEqual(v, b[i] as Literal, budget));
   }
   const ka = Object.keys(a);
   const kb = Object.keys(b);
   if (ka.length !== kb.length) return false;
   const bb = b as Record<string, Literal>;
-  return ka.every((k) => k in (a as Record<string, Literal>) && deepEqual((a as Record<string, Literal>)[k]!, bb[k]!));
+  const aa = a as Record<string, Literal>;
+  return ka.every((k) => Object.hasOwn(aa, k) && Object.hasOwn(bb, k) && deepEqual(aa[k]!, bb[k]!, budget));
 }
 
 function checkNum(v: number, pos: number): number {
@@ -393,6 +406,9 @@ function checkNum(v: number, pos: number): number {
 export function evaluate(ast: ExprAst, ctx: EvalContext): Literal {
   const limits = { ...DEFAULT_LIMITS, ...ctx.limits };
   let steps = 0;
+  // Shared budget for deep equality so nested structures pay for their own
+  // comparison work instead of running outside the step accounting.
+  const eqBudget = { steps: 0, max: limits.maxSteps };
 
   const run = (e: ExprAst, depth: number): Literal => {
     steps += 1;
@@ -434,7 +450,10 @@ export function evaluate(ast: ExprAst, ctx: EvalContext): Literal {
       case "get": {
         const obj = run(e.obj, depth + 1);
         if (obj !== null && typeof obj === "object" && !Array.isArray(obj)) {
-          return (obj as Record<string, Literal>)[e.name] ?? null;
+          // Own properties only (SEC-2): an inherited member like
+          // `{}.constructor` would otherwise hand a host function into the
+          // expression tree, violating the data-only boundary.
+          return Object.hasOwn(obj as Record<string, Literal>, e.name) ? (obj as Record<string, Literal>)[e.name]! : null;
         }
         throw new ExprError("E_EXPR_EVAL", "property access on non-object");
       }
@@ -448,7 +467,8 @@ export function evaluate(ast: ExprAst, ctx: EvalContext): Literal {
           return obj[idx] ?? null;
         }
         if (obj !== null && typeof obj === "object" && typeof idx === "string") {
-          return (obj as Record<string, Literal>)[idx] ?? null;
+          // Own properties only (SEC-2), like the `.` accessor above.
+          return Object.hasOwn(obj as Record<string, Literal>, idx) ? (obj as Record<string, Literal>)[idx]! : null;
         }
         throw new ExprError("E_EXPR_EVAL", "cannot index this value");
       }
@@ -486,9 +506,9 @@ export function evaluate(ast: ExprAst, ctx: EvalContext): Literal {
         const r = run(e.right, depth + 1);
         switch (e.op) {
           case "==":
-            return deepEqual(l, r);
+            return deepEqual(l, r, eqBudget);
           case "!=":
-            return !deepEqual(l, r);
+            return !deepEqual(l, r, eqBudget);
           case "<":
           case "<=":
           case ">":

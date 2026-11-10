@@ -1,4 +1,4 @@
-import { display, evalExpr } from "./expr.js";
+import { display, evalExpr, type EvalLimits } from "./expr.js";
 import { printLiteral } from "./literal.js";
 import type { AttrValue, BlockNode, Doc, Expr, ForeignNode, Literal, Node } from "./types.js";
 
@@ -21,6 +21,8 @@ export interface RenderOptions {
    * complete without JS; a matching entry unhides its region.
    */
   phases?: Record<string, string>;
+  /** SEC-4 budgets for expression evaluation during render (default 1000/64). */
+  limits?: Partial<EvalLimits>;
 }
 
 export function esc(s: string): string {
@@ -44,8 +46,13 @@ function escAttr(s: string): string {
 export function safeUrl(u: string): string {
   // Browsers strip tab/newline from URL attributes, so `jav\tascript:` would
   // pass the scheme check below and still become a live script URL. Strip
-  // them before the scheme checks.
-  const t = u.replace(/[\t\n\r]/g, "").trim();
+  // them before the scheme checks. Leading/trailing C0 controls and spaces
+  // are also stripped the way the URL parser would: `\u0001javascript:` must
+  // not sneak a scheme past the filter.
+  const t = u
+    .replace(/[\t\n\r]/g, "")
+    .replace(/^[\u0000-\u0020]+/, "")
+    .replace(/[\u0000-\u0020]+$/, "");
   if (/^https?:\/\//i.test(t) || /^mailto:/i.test(t) || /^tel:/i.test(t)) return t;
   if (/^[a-z][a-z0-9+.-]*:/i.test(t)) return "#";
   return t;
@@ -58,7 +65,7 @@ export function safeUrl(u: string): string {
  * an empty span: a render error affects one node, never the document.
  * Literal segments are escaped here, so the result is safe HTML.
  */
-function bind(s: string, env?: Scope): string {
+function bind(s: string, env?: Scope, limits?: Partial<EvalLimits>): string {
   let out = "";
   let rest = s;
   for (;;) {
@@ -69,7 +76,7 @@ function bind(s: string, env?: Scope): string {
     let val = "";
     if (env !== undefined) {
       try {
-        val = display(evalExpr(raw, { scope: env }));
+        val = display(evalExpr(raw, { scope: env, limits }));
       } catch {
         val = "";
       }
@@ -99,7 +106,26 @@ function dataAttrs(b: BlockNode): string {
 /** One row of a GFM pipe table: strip the optional edge pipes, split, trim. */
 function splitRow(s: string): string[] {
   const t = s.trim().replace(/^\|/, "").replace(/\|$/, "");
-  return t.split("|").map((c) => c.trim());
+  // Pipe-aware: `\|` is an escaped literal pipe inside a cell (GFM), not a
+  // delimiter, so converted cells containing `|` keep their structure.
+  const cells: string[] = [];
+  let cur = "";
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i]!;
+    if (c === "\\" && t[i + 1] === "|") {
+      cur += "|";
+      i += 1;
+      continue;
+    }
+    if (c === "|") {
+      cells.push(cur.trim());
+      cur = "";
+      continue;
+    }
+    cur += c;
+  }
+  cells.push(cur.trim());
+  return cells;
 }
 
 /** A delimiter row: `|---|:---:|` style; every cell is `:?-+:?`. */
@@ -338,7 +364,7 @@ function renderAction(b: BlockNode, opts: RenderOptions, env?: Scope): string {
   const known = cap === "" || (opts.registry?.has(cap) ?? true);
   const missing = known ? "" : " data-cap-missing";
   const disabled = known ? "" : " disabled";
-  const label = bind(b.body ?? "", env);
+  const label = bind(b.body ?? "", env, opts.limits);
   if (b.attrs.href !== undefined) {
     return `<a href="${escAttr(safeUrl(attr(b.attrs.href)))}" ${dataAttrs(b)}${missing}>${label}</a>`;
   }
@@ -350,8 +376,7 @@ function renderTable(b: BlockNode, env?: Scope): string {
   for (const ln of (b.body ?? "").split("\n")) {
     const t = ln.trim();
     if (t === "" || /^\|?[ \t]*:?-{2,}/.test(t)) continue;
-    const cells = t.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
-    rows.push(cells);
+    rows.push(splitRow(t));
   }
   if (rows.length === 0) return `<table ${dataAttrs(b)}></table>`;
   const [head, ...rest] = rows;
@@ -370,11 +395,11 @@ const isExprVal = (v: Literal | Expr): v is Expr =>
  * literals render via display(), expressions evaluate in the binding scope
  * (empty like any binding when there is no env) and never throw past one cell.
  */
-function chartCell(v: Literal | Expr, env?: Scope): string {
+function chartCell(v: Literal | Expr, env?: Scope, limits?: Partial<EvalLimits>): string {
   if (isExprVal(v)) {
     if (env === undefined) return "";
     try {
-      return inline(display(evalExpr(v.raw, { scope: env })), env);
+      return inline(display(evalExpr(v.raw, { scope: env, limits })), env);
     } catch {
       return "";
     }
@@ -394,13 +419,14 @@ function chartTable(
   data: Literal | Expr | undefined,
   columns: Literal | Expr | undefined,
   env?: Scope,
+  limits?: Partial<EvalLimits>,
 ): string {
   if (data === undefined || !Array.isArray(data) || data.length === 0) return "";
   const arr: Literal[] = data;
   let header: string[] | null = null;
   let rows: string[][];
   if (arr.every((r) => Array.isArray(r))) {
-    rows = (arr as Literal[][]).map((r) => r.map((c) => chartCell(c, env)));
+    rows = (arr as Literal[][]).map((r) => r.map((c) => chartCell(c, env, limits)));
     if (Array.isArray(columns) && columns.every((c) => typeof c === "string")) {
       header = columns as string[];
     }
@@ -412,9 +438,9 @@ function chartTable(
       }
     }
     header = keys;
-    rows = (arr as Record<string, Literal>[]).map((r) => keys.map((k) => chartCell(r[k] ?? "", env)));
+    rows = (arr as Record<string, Literal>[]).map((r) => keys.map((k) => chartCell(r[k] ?? "", env, limits)));
   } else if (arr.every((r) => r === null || typeof r === "string" || typeof r === "number" || typeof r === "boolean")) {
-    rows = (arr as Literal[]).map((v) => [chartCell(v, env)]);
+    rows = (arr as Literal[]).map((v) => [chartCell(v, env, limits)]);
   } else {
     return ""; // mixed shapes: no deterministic fallback
   }
@@ -424,9 +450,9 @@ function chartTable(
   return `<table>\n${thead}\n${tbody}\n</table>`;
 }
 
-function renderChart(b: BlockNode, env?: Scope): string {
-  const type = b.fields.type === undefined ? "" : escAttr(printLiteral(b.fields.type));
-  const table = chartTable(b.fields.data, b.fields.columns, env);
+function renderChart(b: BlockNode, opts: RenderOptions, env?: Scope): string {
+  const type = b.fields.type === undefined ? "" : escAttr(displayLiteral(b.fields.type));
+  const table = chartTable(b.fields.data, b.fields.columns, env, opts.limits);
   return `<figure ${dataAttrs(b)} data-ad-chart="${type}">${table === "" ? "" : `\n${table}\n`}</figure>`;
 }
 
@@ -435,12 +461,12 @@ function renderChart(b: BlockNode, env?: Scope): string {
  * lines (markdown list markers stripped) render as `<ul>`/`<ol>`. Ordered
  * when every body line uses `N.` / `N)` markers, or via `ordered: true`.
  */
-function renderListBlock(b: BlockNode, env?: Scope): string {
+function renderListBlock(b: BlockNode, opts: RenderOptions, env?: Scope): string {
   let items: string[] = [];
   let ordered = b.fields.ordered === true;
   const it = b.fields.items;
   if (it !== undefined && Array.isArray(it)) {
-    items = (it as Literal[]).map((v) => chartCell(v, env));
+    items = (it as Literal[]).map((v) => chartCell(v, env, opts.limits));
   } else if (b.body !== null && b.body.trim() !== "") {
     const lines = b.body.split("\n").map((l) => l.trim()).filter((l) => l !== "");
     const ulRe = /^[*+-][ \t]+/;
@@ -459,9 +485,28 @@ function renderListBlock(b: BlockNode, env?: Scope): string {
   return `<${tag} ${dataAttrs(b)}>\n${items.map((i) => `<li>${i}</li>`).join("\n")}\n</${tag}>`;
 }
 
+/**
+ * Display a literal in rendered HTML (SPEC 11): the actual string value, not
+ * its source serialization. printLiteral is for canonical text; a quoted
+ * string must not surface its quotes in `alt="..."` or `{expr}` placeholders.
+ */
+function displayLiteral(v: Literal | Expr): string {
+  return typeof v === "string" ? v : printLiteral(v);
+}
+
 function renderDataBlock(b: BlockNode): string {
   const json = JSON.stringify(b.fields);
-  return `<script type="application/x-ad-data" ${dataAttrs(b)}>${esc(json)}</script>`;
+  // Inside a raw-text <script> the HTML parser does not decode entities, so
+  // esc() would corrupt published values ({"a":"<b>"} -> "<b>"). JSON-escape
+  // instead: \u00XX keeps JSON.parse correct while staying HTML-inert (no
+  // literal < > & survive, so no </script> breakout).
+  const inert = json
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+  return `<script type="application/x-ad-data" ${dataAttrs(b)}>${inert}</script>`;
 }
 
 export function renderBlock(b: BlockNode, opts: RenderOptions, env?: Scope): string {
@@ -470,7 +515,7 @@ export function renderBlock(b: BlockNode, opts: RenderOptions, env?: Scope): str
     case "data":
       return renderDataBlock(b);
     case "text":
-      return bind(b.fields.body === undefined ? "" : printLiteral(b.fields.body), env);
+      return bind(b.fields.body === undefined ? "" : displayLiteral(b.fields.body), env);
     case "action":
       return renderAction(b, opts, env);
     case "form":
@@ -480,19 +525,19 @@ export function renderBlock(b: BlockNode, opts: RenderOptions, env?: Scope): str
         b.fields[k] === undefined || typeof b.fields[k] !== "number"
           ? ""
           : ` ${k}="${b.fields[k]}"`;
-      const src = b.fields.src === undefined ? "" : escAttr(safeUrl(printLiteral(b.fields.src)));
-      const alt = b.fields.alt === undefined ? "" : escAttr(printLiteral(b.fields.alt));
+      const src = b.fields.src === undefined ? "" : escAttr(safeUrl(displayLiteral(b.fields.src)));
+      const alt = b.fields.alt === undefined ? "" : escAttr(displayLiteral(b.fields.alt));
       return `<img src="${src}" alt="${alt}"${dim("width")}${dim("height")}>`;
     }
     case "link":
-      const href = b.fields.href === undefined ? "" : printLiteral(b.fields.href);
+      const href = b.fields.href === undefined ? "" : displayLiteral(b.fields.href);
       return `<a href="${escAttr(safeUrl(href))}" ${dataAttrs(b)}>${bind(b.body ?? "", env)}</a>`;
     case "table":
       return renderTable(b, env);
     case "chart":
-      return renderChart(b, env);
+      return renderChart(b, opts, env);
     case "list":
-      return renderListBlock(b, env);
+      return renderListBlock(b, opts, env);
     case "include":
     case "manifest":
     case "field":

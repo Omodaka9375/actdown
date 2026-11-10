@@ -14,7 +14,11 @@ use crate::types::{BlockNode, Doc, FieldValue, Literal, Node, Scope};
 /// Resolve the document's flat state map (SPEC 5). `state` blocks are applied
 /// in document order; literal fields are taken as-is, expression fields are
 /// evaluated against the state accumulated so far (computed state, level 3).
-/// Later entries override earlier ones.
+/// Later entries override earlier ones. SPEC 4.4: a data block with an id
+/// publishes ONE nested object under that id (bindings read `id.key`); a
+/// data block without an id stays flat. One bad field resolves to null: a
+/// render error affects one entry, never the document (SPEC 15), mirroring
+/// the TypeScript computeState boundary.
 pub fn compute_state(doc: &Doc, initial: Option<&Scope>) -> Result<Scope, ExprError> {
     let mut scope: Scope = initial.cloned().unwrap_or_default();
     for n in &doc.nodes {
@@ -22,10 +26,24 @@ pub fn compute_state(doc: &Doc, initial: Option<&Scope>) -> Result<Scope, ExprEr
         if b.block_type != "state" && b.block_type != "data" {
             continue;
         }
+        if b.block_type == "data" && !b.id.is_empty() {
+            let mut obj: Scope = Scope::new();
+            for (k, v) in &b.fields {
+                let value = match v {
+                    FieldValue::Expr(e) => eval_expr(&e.raw, &mut EvalContext::render(&scope))
+                        .unwrap_or(Literal::Null),
+                    FieldValue::Lit(lit) => lit.clone(),
+                };
+                obj.insert(k.clone(), value);
+            }
+            scope.insert(b.id.clone(), Literal::Obj(obj));
+            continue;
+        }
         for (k, v) in &b.fields {
             match v {
                 FieldValue::Expr(e) => {
-                    let value = eval_expr(&e.raw, &mut EvalContext::render(&scope))?;
+                    let value = eval_expr(&e.raw, &mut EvalContext::render(&scope))
+                        .unwrap_or(Literal::Null);
                     scope.insert(k.clone(), value);
                 }
                 FieldValue::Lit(lit) => {
@@ -100,10 +118,11 @@ fn render_reactive_node_ctx(n: &Node, scope: &Scope, phases: Option<&PhaseMap>) 
         return Ok(render_node(n, RenderCtx { env: Some(scope), phases }));
     };
 
-    // SPEC 5: `when="expr"` hides the node when the expression is falsy.
+    // SPEC 5: `when="expr"` hides the node when the expression is falsy. A
+    // failing guard hides only this node (SPEC 15), never aborts the render.
     if let Some(when) = b.fields.get("when") {
         let v = match when {
-            FieldValue::Expr(e) => eval_raw(&e.raw, scope)?,
+            FieldValue::Expr(e) => eval_raw(&e.raw, scope).unwrap_or(Literal::Null),
             FieldValue::Lit(lit) => lit.clone(),
         };
         if !truthy(&v) {
@@ -123,7 +142,7 @@ fn render_reactive_node_ctx(n: &Node, scope: &Scope, phases: Option<&PhaseMap>) 
             let Some((item_name, index_name, expr)) = parse_each(&raw_each) else {
                 return Ok(render_node(n, RenderCtx { env: Some(scope), phases }));
             };
-            let items = eval_raw(&expr, scope)?;
+            let items = eval_raw(&expr, scope).unwrap_or(Literal::Null);
             let Literal::Arr(items) = items else { return Ok(String::new()) };
             let mut parts = Vec::with_capacity(items.len());
             for (index, item) in items.iter().enumerate() {

@@ -128,6 +128,23 @@ fn tokenize(src: &str) -> Result<Vec<Tok>, ExprError> {
                             return Err(ExprError::new(E_EXPR_PARSE, "bad unicode escape"));
                         }
                         let cp = u32::from_str_radix(hex, 16).unwrap_or(0);
+                        // Combine escaped surrogate PAIRS the way JS does
+                        // (\uD83D\uDE00 is one astral character, not two
+                        // replacement chars). Lone surrogates stay U+FFFD.
+                        if (0xd800..=0xdbff).contains(&cp) {
+                            let low = src.get(i + 6..i + 11).unwrap_or("");
+                            let low_hex = low.strip_prefix("\\u").unwrap_or("");
+                            if low_hex.len() == 4 && low_hex.chars().all(|h| h.is_ascii_hexdigit()) {
+                                if let Ok(lo) = u32::from_str_radix(low_hex, 16) {
+                                    if (0xdc00..=0xdfff).contains(&lo) {
+                                        let c = 0x10000 + ((cp - 0xd800) << 10) + (lo - 0xdc00);
+                                        out.push(char::from_u32(c).unwrap_or('\u{fffd}'));
+                                        i += 11;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
                         out.push(char::from_u32(cp).unwrap_or('\u{fffd}'));
                         i += 5;
                     } else {
@@ -334,7 +351,14 @@ impl Parser {
                 let mut args = Vec::new();
                 if !self.at_op(")") {
                     loop {
-                        args.push(self.or()?);
+                        // Call arguments nest like any other subexpression:
+                        // they must count toward the parse depth budget
+                        // (SEC-4), or nested call chains overflow the stack
+                        // below the guard (matches the TS fix).
+                        self.enter()?;
+                        let arg = self.or();
+                        self.depth -= 1;
+                        args.push(arg?);
                         if self.at_op(",") {
                             self.next()?;
                             continue;
@@ -446,17 +470,27 @@ pub fn parse_expr(raw: &str) -> Result<ExprAst, ExprError> {
 // ---------------------------------------------------------------------------
 
 fn deep_equal(a: &Literal, b: &Literal) -> bool {
+    deep_equal_budget(a, b, &mut 0)
+}
+
+/// Budgeted structural equality: a degenerate deep comparison must not run
+/// outside the evaluator's step accounting (SEC-4, matches the TS fix).
+fn deep_equal_budget(a: &Literal, b: &Literal, steps: &mut u32) -> bool {
+    *steps += 1;
+    if *steps > 1000 {
+        return false;
+    }
     match (a, b) {
         (Literal::Null, Literal::Null) => true,
         (Literal::Bool(x), Literal::Bool(y)) => x == y,
         (Literal::Num(x), Literal::Num(y)) => x == y,
         (Literal::Str(x), Literal::Str(y)) => x == y,
         (Literal::Arr(x), Literal::Arr(y)) => {
-            x.len() == y.len() && x.iter().zip(y.iter()).all(|(u, v)| deep_equal(u, v))
+            x.len() == y.len() && x.iter().zip(y.iter()).all(|(u, v)| deep_equal_budget(u, v, steps))
         }
         (Literal::Obj(x), Literal::Obj(y)) => {
             x.len() == y.len()
-                && x.iter().all(|(k, v)| y.get(k).map_or(false, |w| deep_equal(v, w)))
+                && x.iter().all(|(k, v)| y.get(k).map_or(false, |w| deep_equal_budget(v, w, steps)))
         }
         _ => false,
     }
@@ -471,6 +505,14 @@ fn truthy(v: &Literal) -> bool {
         Literal::Arr(items) => !items.is_empty(),
         Literal::Obj(entries) => !entries.is_empty(),
     }
+}
+
+/// JS string ordering: compare UTF-16 code units (astral chars encode as
+/// surrogate pairs, sorting BELOW U+E000, unlike Unicode scalar order).
+fn utf16_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let ua: Vec<u16> = a.encode_utf16().collect();
+    let ub: Vec<u16> = b.encode_utf16().collect();
+    ua.cmp(&ub)
 }
 
 fn check_num(v: f64) -> Result<f64, ExprError> {
@@ -629,12 +671,18 @@ pub fn evaluate(ast: &ExprAst, ctx: &mut EvalContext) -> Result<Literal, ExprErr
                                         _ => a >= b,
                                     }))
                                 }
-                                (Literal::Str(a), Literal::Str(b)) => Ok(Literal::Bool(match op.as_str() {
-                                    "<" => a < b,
-                                    "<=" => a <= b,
-                                    ">" => a > b,
-                                    _ => a >= b,
-                                })),
+                                (Literal::Str(a), Literal::Str(b)) => {
+                                    // JS compares strings by UTF-16 code
+                                    // units; Rust compares by Unicode scalar.
+                                    // Divergence only above U+E000 vs astral.
+                                    let ord = utf16_cmp(a, b);
+                                    Ok(Literal::Bool(match op.as_str() {
+                                        "<" => ord == std::cmp::Ordering::Less,
+                                        "<=" => ord != std::cmp::Ordering::Greater,
+                                        ">" => ord == std::cmp::Ordering::Greater,
+                                        _ => ord != std::cmp::Ordering::Less,
+                                    }))
+                                }
                                 _ => Ok(Literal::Bool(false)),
                             },
                             "+" => match (&l, &r) {

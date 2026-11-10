@@ -174,6 +174,17 @@ function parseBlock(
       currentKey = null;
       return;
     }
+    // SPEC 4.3 documents `on:submit="expr"` (equals + quoted expression) as
+    // the field form; without this branch it parses as an ordinary field
+    // named `on` and the trigger is silently lost.
+    const evq = /^on:(click|submit|change|load)=[ \t]*(.*)$/.exec(ln);
+    if (evq) {
+      let v = evq[2]!.trim();
+      if (v.startsWith('"') && v.endsWith('"') && v.length >= 2) v = v.slice(1, -1);
+      events.set(evq[1]!, v);
+      currentKey = null;
+      return;
+    }
     const fm = /^([a-z][a-z0-9-]*):[ \t]*(.*)$/.exec(ln);
     if (fm) {
       const key = fm[1]!;

@@ -87,6 +87,14 @@ export function parseHtml(src: string): HtmlNode {
     return true;
   };
 
+  // Bounds on the synchronous path (this parser runs on the gateway event
+  // loop): the auto-close scan only looks at the top AUTOCLOSE_WINDOW stack
+  // entries, and total nesting depth is capped. Both keep pathological
+  // nesting linear; a document deeper than the cap has further open tags
+  // attach to their parent instead of the stack.
+  const AUTOCLOSE_WINDOW = 64;
+  const MAX_DEPTH = 1000;
+
   let i = 0;
   while (i < src.length) {
     const lt = src.indexOf("<", i);
@@ -119,10 +127,19 @@ export function parseHtml(src: string): HtmlNode {
     }
     const tag = openM[1]!.toLowerCase();
     const node: HtmlNode = { tag, attrs: parseAttrs(openM[2] ?? ""), children: [] };
-    for (const t of AUTOCLOSE[tag] ?? []) {
-      if (stack.findLast((n) => n.tag === t) !== undefined && stack.length > 1) {
-        const idx = stack.findLastIndex((n) => n.tag === t);
-        if (idx === stack.length - 1) stack.length = idx;
+    const closable = AUTOCLOSE[tag];
+    if (closable !== undefined && stack.length > 1) {
+      // Bounded scan: only the top AUTOCLOSE_WINDOW entries can be closed.
+      // Nested markup previously scanned the whole stack per open tag,
+      // making deeply repeated <div> quadratic on the event loop.
+      const from = Math.max(1, stack.length - AUTOCLOSE_WINDOW);
+      for (const t of closable) {
+        for (let s = stack.length - 1; s >= from; s -= 1) {
+          if (stack[s]!.tag === t) {
+            if (s === stack.length - 1) stack.length = s;
+            break;
+          }
+        }
       }
     }
     push(node);
@@ -138,7 +155,7 @@ export function parseHtml(src: string): HtmlNode {
       // became a stack entry, so there is nothing to pop here.
       continue;
     }
-    stack.push(node);
+    if (stack.length < MAX_DEPTH) stack.push(node);
   }
   return root;
 }

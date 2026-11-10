@@ -1,5 +1,5 @@
 import { evaluate, parseExpr, ExprError } from "./expr.js";
-import { computeState, renderWithState, type ReactiveOptions } from "./react.js";
+import { computeState, recomputeExprState, renderWithState, type ReactiveOptions } from "./react.js";
 import type { BlockNode, Doc, Literal, Node } from "./types.js";
 
 /**
@@ -65,9 +65,20 @@ export interface Runtime {
 }
 
 export function hydrate(doc: Doc, opts: RuntimeOptions = {}): Runtime {
-  let scope = computeState(doc, opts.initial);
+  // The scope object is mutated in place for the lifetime of the runtime, so
+  // a capability holding `ctx.state` always observes current values (no
+  // stale snapshot across an await).
+  const scope = computeState(doc, opts.initial, opts.limits);
   const phases: Record<string, string> = {};
   const caps = opts.capabilities ?? {};
+
+  const applyPatch = (patch: Record<string, Literal>): void => {
+    Object.assign(scope, patch);
+    // Computed state tracks patches (SPEC 5): expression-backed fields are
+    // re-evaluated after every change. Literal seeds are not reapplied, so a
+    // host patch to a literal-named key survives.
+    recomputeExprState(doc, scope, opts.limits);
+  };
 
   const html = (): string => renderWithState(doc, scope, { ...opts, phases });
 
@@ -75,7 +86,7 @@ export function hydrate(doc: Doc, opts: RuntimeOptions = {}): Runtime {
     state: () => ({ ...scope }),
     phases: () => ({ ...phases }),
     set(patch) {
-      scope = { ...scope, ...patch };
+      applyPatch(patch);
     },
     html,
     submit(formId, fields) {
@@ -86,12 +97,15 @@ export function hydrate(doc: Doc, opts: RuntimeOptions = {}): Runtime {
       if (block === undefined) throw new Error(`no block with id "${blockId}"`);
 
       const runCap = (name: string, args: Literal): Literal | Promise<Literal> | void => {
-        const fn = caps[name];
-        if (fn === undefined) throw new CapMissingError(name);
+        // Own-property lookup only: `caps.constructor` must not resolve to
+        // the inherited Object constructor (E_CAP_MISSING, not a live host
+        // function).
+        const fn = Object.hasOwn(caps, name) ? caps[name] : undefined;
+        if (typeof fn !== "function") throw new CapMissingError(name);
         const out = fn(args, {
           state: scope,
           set: (patch) => {
-            scope = { ...scope, ...patch };
+            applyPatch(patch);
           },
         });
         if (out instanceof Promise) {
