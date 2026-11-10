@@ -1,3 +1,5 @@
+# Deploys actdown-rs/playground.html (fresh WASM embedded at build time) to
+# GitHub Pages. Requires Source: "GitHub Actions" in Settings -> Pages.
 name: Pages
 
 on:
