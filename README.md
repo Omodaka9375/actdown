@@ -52,11 +52,24 @@ native UI produced by a host application; they do not need to learn ad.
 
 ## Why actdown?
 
+Three kinds of format exist for agent-facing content, and none of them fits:
+
+```text
+Docs for agents    (llms.txt, .md endpoints)  readable but dead:
+                                              no state, no actions
+Agent UI bundles   (MCP Apps, Apps SDK)       alive but opaque:
+                                              JS code, bundler, iframe
+Declarative cards  (Adaptive Cards)           JSON, not prose: agents
+                                              cannot read their own UI
+```
+
+actdown is the missing middle: **a text document that can hold state and
+name actions, and still render with no JavaScript at all.**
+
 HTML is a good browser delivery format but an expensive agent interface.
 Presentation markup obscures meaning, pages are token-heavy, and behavior
-usually depends on JavaScript that an agent should not execute.
-
-actdown separates those concerns:
+usually depends on JavaScript that an agent should not execute. actdown
+separates those concerns:
 
 | Need | actdown answer |
 |---|---|
@@ -69,7 +82,9 @@ actdown separates those concerns:
 
 The important boundary is that **the document describes intent; the host
 owns behavior**. A document can request `cart.add`, but it cannot define
-what that function does. Ungranted capabilities are not executed.
+what that function does. Ungranted capabilities are not executed. That
+boundary is enforced by design, not by policy: there is no script syntax
+to abuse, so there is nothing to sandbox.
 
 ## What is the deliverable?
 
