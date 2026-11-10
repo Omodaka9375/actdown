@@ -42,6 +42,12 @@
   }
   button.tab.on { background: #161e28; color: var(--bright); border-color: #2ea04366; }
   .bar button:hover, button.tab:hover { border-color: var(--blue); color: var(--bright); }
+  /* Thin scrollbars in the theme accent (Firefox + Chromium). */
+  * { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--bright); }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
   .wrap { flex: 1; position: relative; min-height: 0; overflow: auto; }
   textarea#src {
     position: absolute; inset: 0; width: 100%; height: 100%;
@@ -54,6 +60,11 @@
     color: var(--fg); white-space: pre; overflow: auto;
   }
   pre.out .e { color: var(--warn); }
+  select#examples {
+    font: inherit; font-size: 11px; padding: 2px 6px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--pane); color: var(--fg); cursor: pointer;
+  }
+  select#examples:hover { border-color: var(--blue); color: var(--bright); }
   #htmlview { position: absolute; inset: 0; overflow: auto; padding: 4px 14px; }
   #htmlview.doc {
     font-family: -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: #e6edf3; line-height: 1.55;
@@ -87,7 +98,7 @@
 </header>
 <main>
   <section class="editor">
-    <div class="bar"><span class="label">document (.ad)</span></div>
+    <div class="bar"><span class="label">document (.ad)</span><select id="examples" title="load an example document"></select></div>
     <div class="wrap"><textarea id="src" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea></div>
   </section>
   <section class="view">
@@ -95,6 +106,7 @@
       <span class="label">output</span>
       <button class="tab on" id="tab-html">rendered</button>
       <button class="tab" id="tab-htmlstatic">html</button>
+      <button class="tab" id="htmlsrc" style="display:none" title="toggle source / rendered view">source</button>
       <button class="tab" id="tab-canonical">canonical</button>
       <button class="tab" id="tab-ast">ast</button>
     </div>
@@ -142,6 +154,55 @@ Deployed. The decision is recorded.
 Decision: {decision}.
 `;
 
+// --- example documents ------------------------------------------------------
+// Loaded via the selector above the editor; [0] is the boot document.
+const EXAMPLES = [
+  { name: "deploy approval (state + actions)", src: SAMPLE },
+  { name: "metrics report (charts + lists)", src: `# Weekly report
+
+Revenue is **up 12%**, signups flat.
+
+\`\`\`ad-chart
+type: bar
+data: [{"week": 1, "deploys": 4}, {"week": 2, "deploys": 9}]
+\`\`\`
+
+\`\`\`ad-chart
+type: spark
+data: [2, 3, 5, 8]
+\`\`\`
+
+\`\`\`ad-list
+---
+- shipped retry policy
+- cut p95 latency by 40%
+\`\`\`
+
+\`\`\`ad-list
+ordered: true
+items: ["canary", "staging", "production"]
+\`\`\`
+
+| service | p95 | error rate |
+| --- | --- | --- |
+| checkout | 120ms | 0.1% |
+| billing | 300ms | 0.4% |
+` },
+  { name: "contact form (controls)", src: `# Feedback
+
+Tell us what broke. Fields validate in the host, not in the page.
+
+\`\`\`ad-form?id=contact&action=cap:contact-form@v1
+email:   input(email, required, maxlength=320)
+score:   input(number, min=0, max=10)
+message: textarea(maxlength=500, value="Type here")
+channel: select(options=["email", "slack"], required)
+agree:   checkbox
+send:    submit(label="Send")
+\`\`\`
+` },
+];
+
 // --- wasm plumbing ---------------------------------------------------------
 let exports = null;
 let memory = null;
@@ -186,11 +247,14 @@ function run(renderFn) {
 
 // --- rendering pipeline -----------------------------------------------------
 let mode = "html";
+let htmlStaticSource = false;
 const els = {
   src: document.getElementById("src"),
   htmlview: document.getElementById("htmlview"),
   textout: document.getElementById("textout"),
   status: document.getElementById("status"),
+  htmlsrc: document.getElementById("htmlsrc"),
+  examples: document.getElementById("examples"),
 };
 
 function setMode(next) {
@@ -198,10 +262,26 @@ function setMode(next) {
   for (const id of ["html", "htmlstatic", "canonical", "ast"]) {
     document.getElementById("tab-" + id).classList.toggle("on", id === next);
   }
-  const isDoc = next === "html";
+  const isDoc = next === "html" || (next === "htmlstatic" && !htmlStaticSource);
   els.htmlview.style.display = isDoc ? "" : "none";
   els.textout.style.display = isDoc ? "none" : "";
+  els.htmlsrc.style.display = next === "htmlstatic" ? "" : "none";
   update();
+}
+
+// Buttons do nothing in the playground (no capability host); wire them
+// so the disabled state is the visible truth rather than a dead click.
+function wireDocButtons() {
+  for (const b of els.htmlview.querySelectorAll("button[data-cap-missing]")) {
+    b.title = "capability not granted: host decides";
+  }
+  for (const b of els.htmlview.querySelectorAll("button:not([data-cap-missing])")) {
+    b.addEventListener("click", () => {
+      els.status.innerHTML =
+        `this button names capability <b>${b.getAttribute("data-ad-fields") ? "" : ""}</b>` +
+        `<b>${(b.textContent || "").trim()}</b> &mdash; a host would grant or refuse it`;
+    });
+  }
 }
 
 function update() {
@@ -224,27 +304,31 @@ function update() {
     return;
   }
   if (mode === "html") {
-    // Buttons do nothing in the playground (no capability host); wire them
-    // so the disabled state is the visible truth rather than a dead click.
     els.htmlview.innerHTML = html;
-    for (const b of els.htmlview.querySelectorAll("button[data-cap-missing]")) {
-      b.title = "capability not granted: host decides";
-    }
-    for (const b of els.htmlview.querySelectorAll("button:not([data-cap-missing])")) {
-      b.addEventListener("click", () => {
-        els.status.innerHTML =
-          `this button names capability <b>${b.getAttribute("data-ad-fields") ? "" : ""}</b>` +
-          `<b>${(b.textContent || "").trim()}</b> &mdash; a host would grant or refuse it`;
-      });
-    }
+    wireDocButtons();
     els.status.innerHTML =
       `parsed <b>ok</b> &mdash; rendered with the <b>Rust</b> engine (wasm) &mdash; ` +
       `<b>${html.length}</b> bytes of html`;
   } else if (mode === "htmlstatic") {
     const staticHtml = run("ad_render");
-    els.textout.textContent = staticHtml ?? "";
-    els.status.innerHTML =
-      `parsed <b>ok</b> &mdash; static level-1 html (no state applied)`;
+    if (staticHtml === null) {
+      els.status.innerHTML = `render error: <span class="e">${lastError()}</span>`;
+      return;
+    }
+    if (htmlStaticSource) {
+      els.htmlview.style.display = "none";
+      els.textout.style.display = "";
+      els.textout.textContent = staticHtml;
+      els.status.innerHTML =
+        `parsed <b>ok</b> &mdash; static level-1 html source (no state applied)`;
+    } else {
+      els.htmlview.style.display = "";
+      els.textout.style.display = "none";
+      els.htmlview.innerHTML = staticHtml;
+      wireDocButtons();
+      els.status.innerHTML =
+        `parsed <b>ok</b> &mdash; static level-1 html, rendered as a plain no-JS consumer sees it (no state applied) &mdash; <b>${staticHtml.length}</b> bytes`;
+    }
   } else if (mode === "canonical") {
     const canonical = run("ad_format");
     els.textout.textContent = canonical ?? "";
@@ -261,6 +345,23 @@ function update() {
 for (const id of ["html", "htmlstatic", "canonical", "ast"]) {
   document.getElementById("tab-" + id).addEventListener("click", () => setMode(id));
 }
+els.htmlsrc.addEventListener("click", () => {
+  htmlStaticSource = !htmlStaticSource;
+  els.htmlsrc.textContent = htmlStaticSource ? "render" : "source";
+  update();
+});
+for (const [i, ex] of EXAMPLES.entries()) {
+  const o = document.createElement("option");
+  o.value = String(i);
+  o.textContent = ex.name;
+  els.examples.appendChild(o);
+}
+els.examples.addEventListener("change", () => {
+  const ex = EXAMPLES[Number(els.examples.value)];
+  if (ex === undefined) return;
+  els.src.value = ex.src;
+  update();
+});
 let timer = null;
 els.src.addEventListener("input", () => {
   clearTimeout(timer);
@@ -272,7 +373,7 @@ els.src.addEventListener("keydown", (e) => {
 
 boot()
   .then(() => {
-    els.src.value = SAMPLE;
+    els.src.value = EXAMPLES[0].src;
     update();
   })
   .catch(err => {
