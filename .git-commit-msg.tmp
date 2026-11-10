@@ -1,9 +1,0 @@
-Fix Rust CI compile errors from the RenderCtx/fence changes
-
-- react.rs: add registry: None to all four RenderCtx initializers (the
-  new field made every literal initializer incomplete).
-- render.rs: read the fence marker char/len through fence.as_ref()
-  (Option tuple field access does not auto-deref), and match the
-  4-tuple in the EOF unterminated-fence branch.
-
-TS suite unchanged (141 green locally); Rust compiles in CI again.
