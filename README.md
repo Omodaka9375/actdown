@@ -2,6 +2,11 @@
 
 **Actionable Markdown: documents that agents can read, write, and operate.**
 
+![actdown end to end: an agent-authored approval document is audited
+statically, rendered safely with nothing granted, then operated through one
+granted capability. Bindings fill, phase regions flip, buttons retire, and
+the audit trail records the decision.](docs/demo.gif)
+
 actdown (short form: ad) is a Markdown
 superset for documents that both people and autonomous agents can read,
 write, and operate. Prose stays Markdown. Fenced `ad-*` blocks add
@@ -171,14 +176,18 @@ src/           TypeScript reference implementation
   react.ts       computed state, when/each, reactive render
   runtime.ts     hydrate/fire/submit, capability registry, phases
   dom.ts         DOM adapter: in-place binding updates, no re-render
+  mcp.ts         stdio MCP server (JSON-RPC 2.0, zero dependencies)
   html2ad.ts    legacy HTML to canonical ad (SPEC 12)
   edge.ts/serve.ts  the edge transcoder service
 test/          vitest suite (97 tests)
 vectors/       cross-implementation conformance suite (SPEC 13)
 actdown-rs/   Rust port (parser, canonical, render, expr, react, runtime)
+  src/wasm.rs    flat C ABI exports for the browser playground
+  playground.html  self-contained playground (see below)
 scripts/       verify.mjs: tsc + vitest, shell-agnostic
 SPEC.md        the specification (draft 0.1, normative)
 DESIGN.md      architecture and solution-path rationale
+docs/demo.gif  the end-to-end approval demo (README hero animation)
 ```
 
 ## Getting started
@@ -308,6 +317,52 @@ The SSRF guard refuses literal private, loopback, link-local, and mapped
 IPv6 targets. `EDGE_ALLOW_PRIVATE=1` disables that guard and should only be
 used for controlled local fixtures, never for an exposed gateway.
 
+## Playground
+
+`actdown-rs/playground.html` is a single self-contained file: a live editor
+next to the rendered document, with the whole Rust engine compiled to WASM
+base64-embedded inside it. No server, no bundler, no network. Open it in a
+browser (from `http://` or a local static server; some browsers restrict
+large modules on `file://`), edit the `.ad` source on the left, and the
+output pane re-renders live. Tabs switch between the rendered document,
+static HTML, canonical text, and the JSON AST.
+
+Build it with:
+
+```sh
+cd actdown-rs
+cargo build --target wasm32-unknown-unknown --release
+node ../scripts/build-playground.mjs
+```
+
+The exports live in `actdown-rs/src/wasm.rs` (`ad_parse`, `ad_render`,
+`ad_render_reactive`, `ad_format`, `ad_ast`) and are a flat C ABI, so any
+host that speaks `WebAssembly.instantiate` can embed the engine without
+bindgen glue.
+
+## MCP server
+
+`src/mcp.ts` is a zero-dependency Model Context Protocol server (JSON-RPC
+2.0 over stdio) that gives any MCP client the actdown engine as tools:
+
+| Tool | Purpose |
+|---|---|
+| `actdown_render` | reactive HTML with bindings filled |
+| `actdown_html` | static level-1 HTML |
+| `actdown_canonical` | canonical text (review-diffable) |
+| `actdown_ast` | the JSON AST (`ad: "0.1"` contract) |
+| `actdown_check` | diagnostics only (empty array when valid) |
+
+Build and register it with the same stdio command an MCP client expects:
+
+```sh
+pnpm build
+node dist/mcp.js        # speaks initialize / tools/list / tools/call
+```
+
+A scriptable smoke test covering the initialize handshake, tool listing,
+and one call per tool lives in `scripts/mcp-smoke.mjs`.
+
 ## Conformance
 
 The `vectors/` directory is the cross-implementation suite (SPEC 13): each
@@ -357,8 +412,8 @@ Before exposing the gateway beyond a trusted environment, add:
 - CI across supported Node and browser versions, dependency and release
   policies, and operational logging/monitoring.
 
-Feature work still open includes `ad-include`, some form-control
-rendering, and wasm-bindgen integration. Rust capabilities are synchronous
+Feature work still open includes `ad-include` and some form-control
+rendering. Rust capabilities are synchronous
 while TypeScript capabilities may be asynchronous, so async phase behavior
 is not identical. Do not treat capability names as a security sandbox for
 host functions: capability implementations themselves remain trusted host

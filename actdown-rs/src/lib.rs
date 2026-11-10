@@ -11,6 +11,8 @@ pub mod parse;
 pub mod react;
 pub mod render;
 pub mod runtime;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
 pub mod types;
 
 pub use canonical::{canonicalize, format, print, print_block, to_json};

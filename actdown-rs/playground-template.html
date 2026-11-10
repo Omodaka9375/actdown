@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>actdown playground</title>
+<style>
+  :root {
+    --bg: #0b0f14; --pane: #0f141b; --line: #1e2733; --fg: #c9d1d9;
+    --dim: #8b949e; --bright: #f0f6fc; --accent: #3fb950; --warn: #f85149;
+    --blue: #58a6ff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    display: flex; flex-direction: column;
+  }
+  header {
+    flex: none; display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--pane);
+  }
+  header h1 { font-size: 15px; font-weight: 700; color: var(--bright); }
+  header h1 b { color: var(--accent); }
+  header .hint { font-size: 11px; color: var(--dim); margin-left: auto; }
+  header .hint kbd {
+    font-family: inherit; background: #161e28; border: 1px solid var(--line);
+    border-radius: 4px; padding: 0 5px;
+  }
+  main { flex: 1; display: flex; min-height: 0; }
+  .editor, .view { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .editor { border-right: 1px solid var(--line); }
+  .bar {
+    flex: none; display: flex; align-items: center; gap: 6px;
+    padding: 6px 12px; background: var(--pane); border-bottom: 1px solid var(--line);
+  }
+  .bar .label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin-right: auto; }
+  button.tab, .bar button {
+    font: inherit; font-size: 11px; padding: 3px 10px; border-radius: 6px;
+    border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer;
+  }
+  button.tab.on { background: #161e28; color: var(--bright); border-color: #2ea04366; }
+  .bar button:hover, button.tab:hover { border-color: var(--blue); color: var(--bright); }
+  .wrap { flex: 1; position: relative; min-height: 0; overflow: auto; }
+  textarea#src {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    background: transparent; color: var(--fg); border: 0; outline: 0; resize: none;
+    padding: 12px 14px; font: inherit; font-size: 13px; line-height: 1.6; tab-size: 2;
+  }
+  pre.out {
+    position: absolute; inset: 0; margin: 0; padding: 12px 14px;
+    font: inherit; font-size: 12px; line-height: 1.55;
+    color: var(--fg); white-space: pre; overflow: auto;
+  }
+  pre.out .e { color: var(--warn); }
+  #htmlview { position: absolute; inset: 0; overflow: auto; padding: 4px 14px; }
+  #htmlview.doc {
+    font-family: -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: #e6edf3; line-height: 1.55;
+  }
+  #htmlview h1, #htmlview h2 { color: var(--bright); margin: .6em 0 .3em; }
+  #htmlview p, #htmlview ul { margin: .4em 0; }
+  #htmlview code { font-family: inherit; font-size: 12px; background: #161e28; padding: 1px 4px; border-radius: 3px; }
+  #htmlview table { border-collapse: collapse; margin: .6em 0; font-size: 12px; }
+  #htmlview th, #htmlview td { border: 1px solid #263041; padding: 4px 10px; text-align: left; }
+  #htmlview th { background: #141b25; color: var(--dim); }
+  #htmlview button {
+    font: inherit; font-size: 12px; padding: 5px 14px; margin: 3px 4px 3px 0;
+    border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: var(--fg); cursor: pointer;
+  }
+  #htmlview button:disabled { opacity: .45; cursor: not-allowed; }
+  #htmlview img { max-width: 100%; border-radius: 6px; }
+  #htmlview [data-cap-missing] { border-color: var(--warn) !important; }
+  footer {
+    flex: none; padding: 6px 16px; font-size: 11px; color: var(--dim);
+    border-top: 1px solid var(--line); background: var(--pane);
+  }
+  footer b { color: var(--bright); font-weight: 600; }
+  footer .e { color: var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <h1>actdown <b>playground</b></h1>
+  <span class="hint">the whole engine is <b id="kbsize">&hellip;</b> of wasm &mdash;
+  edit on the left, everything re-renders live &mdash; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> re-renders now</span>
+</header>
+<main>
+  <section class="editor">
+    <div class="bar"><span class="label">document (.ad)</span></div>
+    <div class="wrap"><textarea id="src" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea></div>
+  </section>
+  <section class="view">
+    <div class="bar">
+      <span class="label">output</span>
+      <button class="tab on" id="tab-html">rendered</button>
+      <button class="tab" id="tab-htmlstatic">html</button>
+      <button class="tab" id="tab-canonical">canonical</button>
+      <button class="tab" id="tab-ast">ast</button>
+    </div>
+    <div class="wrap">
+      <div id="htmlview" class="doc"></div>
+      <pre class="out" id="textout" style="display:none"></pre>
+    </div>
+  </section>
+</main>
+<footer><span id="status"></span></footer>
+
+<script>
+"use strict";
+// --- sample document -------------------------------------------------------
+const SAMPLE = `# Deploy approval: {service} {version}
+
+\`\`\`ad-state
+service: "checkout-service"
+version: "2.4.1"
+approved: false
+decision: "awaiting review"
+\`\`\`
+
+\`\`\`ad-action?name=deploy.approve&role=primary&when=!approved
+id: approve
+on:click: cap.send("deploy.approve", {version: version})
+---
+Approve deploy ({version})
+\`\`\`
+
+\`\`\`ad-action?name=deploy.reject&role=danger&when=!approved
+id: reject
+on:click: cap.send("deploy.reject", {})
+---
+Reject and reopen
+\`\`\`
+
+\`\`\`ad-region
+for: approve
+phase: success
+---
+Deployed. The decision is recorded.
+\`\`\`
+
+Decision: {decision}.
+`;
+
+// --- wasm plumbing ---------------------------------------------------------
+let exports = null;
+let memory = null;
+
+const text = (ptr, len) => {
+  const bytes = new Uint8Array(memory.buffer, ptr, len);
+  return new TextDecoder().decode(bytes);
+};
+
+async function boot() {
+  const wasmBase64 = "@@WASM@@";
+  const bytes = Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0));
+  document.getElementById("kbsize").textContent =
+    (bytes.length / 1024).toFixed(0) + " KB";
+  const { instance } = await WebAssembly.instantiate(bytes, {});
+  exports = instance.exports;
+  memory = exports.memory;
+}
+
+/** Parse the current editor text. Returns true on success. */
+function parseDoc() {
+  const src = document.getElementById("src").value;
+  const len = new TextEncoder().encode(src).length;
+  const ptr = exports.ad_alloc(len);
+  if (ptr === 0 && len > 0) throw new Error("ad_alloc returned null");
+  new Uint8Array(memory.buffer, ptr, len).set(new TextEncoder().encode(src));
+  const status = exports.ad_parse(ptr, len);
+  return status === 0;
+}
+
+function lastError() {
+  const p = exports.ad_err_ptr();
+  if (p === 0) return "unknown error";
+  return text(p, exports.ad_err_len());
+}
+
+/** Call an export that fills the output buffer; return its text or null. */
+function run(renderFn) {
+  if (exports[renderFn]() === 0) return text(exports.ad_ptr(), exports.ad_len());
+  return null;
+}
+
+// --- rendering pipeline -----------------------------------------------------
+let mode = "html";
+const els = {
+  src: document.getElementById("src"),
+  htmlview: document.getElementById("htmlview"),
+  textout: document.getElementById("textout"),
+  status: document.getElementById("status"),
+};
+
+function setMode(next) {
+  mode = next;
+  for (const id of ["html", "htmlstatic", "canonical", "ast"]) {
+    document.getElementById("tab-" + id).classList.toggle("on", id === next);
+  }
+  const isDoc = next === "html";
+  els.htmlview.style.display = isDoc ? "" : "none";
+  els.textout.style.display = isDoc ? "none" : "";
+  update();
+}
+
+function update() {
+  let ok = false;
+  try {
+    ok = parseDoc();
+  } catch (e) {
+    els.status.innerHTML = `error: <span class="e">${e.message}</span>`;
+    return;
+  }
+  if (!ok) {
+    els.status.innerHTML = `parse error: <span class="e">${lastError()}</span>`;
+    els.htmlview.innerHTML = "";
+    els.textout.textContent = "";
+    return;
+  }
+  const html = run("ad_render_reactive");
+  if (html === null) {
+    els.status.innerHTML = `render error: <span class="e">${lastError()}</span>`;
+    return;
+  }
+  if (mode === "html") {
+    // Buttons do nothing in the playground (no capability host); wire them
+    // so the disabled state is the visible truth rather than a dead click.
+    els.htmlview.innerHTML = html;
+    for (const b of els.htmlview.querySelectorAll("button[data-cap-missing]")) {
+      b.title = "capability not granted: host decides";
+    }
+    for (const b of els.htmlview.querySelectorAll("button:not([data-cap-missing])")) {
+      b.addEventListener("click", () => {
+        els.status.innerHTML =
+          `this button names capability <b>${b.getAttribute("data-ad-fields") ? "" : ""}</b>` +
+          `<b>${(b.textContent || "").trim()}</b> &mdash; a host would grant or refuse it`;
+      });
+    }
+    els.status.innerHTML =
+      `parsed <b>ok</b> &mdash; rendered with the <b>Rust</b> engine (wasm) &mdash; ` +
+      `<b>${html.length}</b> bytes of html`;
+  } else if (mode === "htmlstatic") {
+    const staticHtml = run("ad_render");
+    els.textout.textContent = staticHtml ?? "";
+    els.status.innerHTML =
+      `parsed <b>ok</b> &mdash; static level-1 html (no state applied)`;
+  } else if (mode === "canonical") {
+    const canonical = run("ad_format");
+    els.textout.textContent = canonical ?? "";
+    els.status.innerHTML =
+      `parsed <b>ok</b> &mdash; canonical text (SPEC 9/10, idempotent + diffable)`;
+  } else if (mode === "ast") {
+    const ast = run("ad_ast");
+    els.textout.textContent = ast ?? "";
+    els.status.innerHTML = `parsed <b>ok</b> &mdash; JSON AST (SPEC 8)`;
+  }
+}
+
+// --- wire up -----------------------------------------------------------------
+for (const id of ["html", "htmlstatic", "canonical", "ast"]) {
+  document.getElementById("tab-" + id).addEventListener("click", () => setMode(id));
+}
+let timer = null;
+els.src.addEventListener("input", () => {
+  clearTimeout(timer);
+  timer = setTimeout(update, 220);
+});
+els.src.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); update(); }
+});
+
+boot()
+  .then(() => {
+    els.src.value = SAMPLE;
+    update();
+  })
+  .catch(err => {
+    els.status.innerHTML = `wasm boot failed: <span class="e">${err.message}</span>`;
+  });
+</script>
+</body>
+</html>
