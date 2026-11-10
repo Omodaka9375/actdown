@@ -26,14 +26,24 @@ pub fn parse_field(value: &str, line: u32) -> Result<FieldValue, ParseError> {
                     Ok(FieldValue::Lit(json_to_literal(&v)))
                 }
             }
-            Err(_) => {
+            Err(e) => {
                 if c == b'"' {
                     Err(err("E_UNTERMINATED_STRING", "unterminated string literal", line))
                 } else if c == b'{' {
-                    // Expression: strip the outer braces so printing
-                    // `{raw}` round-trips (SPEC 9).
-                    let raw = if s.ends_with('}') { &s[1..s.len() - 1] } else { &s[1..] };
-                    Ok(FieldValue::Expr(Expr::new(raw.trim())))
+                    // Distinguish a JSON error an expression could never
+                    // produce: serde_json classifies an out-of-range number
+                    // (1e999) as a data error; expression syntax ({count + 1})
+                    // fails as a syntax error. Data errors must not silently
+                    // become expressions (TS parity: JSON.parse gives
+                    // Infinity, then the finite check rejects it).
+                    if e.classify() == serde_json::error::Category::Data {
+                        Err(err("E_BAD_LITERAL", &format!("malformed object literal: {e}"), line))
+                    } else {
+                        // Expression: strip the outer braces so printing
+                        // `{raw}` round-trips (SPEC 9).
+                        let raw = if s.ends_with('}') { &s[1..s.len() - 1] } else { &s[1..] };
+                        Ok(FieldValue::Expr(Expr::new(raw.trim())))
+                    }
                 } else {
                     Err(err("E_BAD_LITERAL", "malformed array literal", line))
                 }
