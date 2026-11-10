@@ -31,12 +31,12 @@ pub fn parse_field(value: &str, line: u32) -> Result<FieldValue, ParseError> {
                     Err(err("E_UNTERMINATED_STRING", "unterminated string literal", line))
                 } else if c == b'{' {
                     // Distinguish a JSON error an expression could never
-                    // produce: serde_json classifies an out-of-range number
-                    // (1e999) as a data error; expression syntax ({count + 1})
-                    // fails as a syntax error. Data errors must not silently
-                    // become expressions (TS parity: JSON.parse gives
-                    // Infinity, then the finite check rejects it).
-                    if e.classify() == serde_json::error::Category::Data {
+                    // produce: serde_json reports an out-of-range number
+                    // (1e999) as a SYNTAX-category error, so classify()
+                    // cannot separate it from expression syntax. Match the
+                    // stable message instead: a range failure must not
+                    // silently become an expression (TS parity).
+                    if e.to_string().contains("number out of range") {
                         Err(err("E_BAD_LITERAL", &format!("malformed object literal: {e}"), line))
                     } else {
                         // Expression: strip the outer braces so printing
