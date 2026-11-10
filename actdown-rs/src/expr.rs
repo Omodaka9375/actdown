@@ -387,6 +387,9 @@ impl Parser {
                     Ok(e)
                 }
                 "{" => {
+                    // Nested like "(" and "[": an object literal must count
+                    // toward the parse depth budget (SEC-4).
+                    self.enter()?;
                     let mut entries = Vec::new();
                     if !self.at_op("}") {
                         loop {
@@ -395,6 +398,7 @@ impl Parser {
                                 Tok::Name(n) => n,
                                 Tok::Str(s) => s,
                                 other => {
+                                    self.depth -= 1;
                                     return Err(ExprError::new(E_EXPR_PARSE, format!("expected object key, got {:?}", other)))
                                 }
                             };
@@ -409,6 +413,7 @@ impl Parser {
                         }
                     }
                     self.expect_op("}")?;
+                    self.depth -= 1;
                     Ok(ExprAst::Obj(entries))
                 }
                 "[" => {

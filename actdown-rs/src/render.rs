@@ -38,7 +38,11 @@ fn esc_attr(s: &str) -> String {
 
 /// Inert link URLs only: http(s)/mailto/tel or relative. Script schemes become "#".
 pub fn safe_url(u: &str) -> String {
-    let t = u.trim();
+    // Browsers strip tab/newline from URL attributes, so `jav\tascript:`
+    // would pass the scheme check below and still become a live script URL.
+    // Strip them before the scheme checks (matches the TS fix).
+    let stripped: String = u.chars().filter(|c| !matches!(c, '\t' | '\n' | '\r')).collect();
+    let t = stripped.trim();
     let lower = t.to_ascii_lowercase();
     if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:") || lower.starts_with("tel:") {
         return t.to_string();

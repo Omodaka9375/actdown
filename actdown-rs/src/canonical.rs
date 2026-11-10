@@ -152,14 +152,32 @@ fn gen_id(b: &BlockNode) -> String {
 }
 
 pub fn canonicalize(doc: &Doc) -> Doc {
+    // Duplicate ids (two identical id-less blocks, or repeated slugs from
+    // html2ad) break runtime keying and phase regions; the TS port appends
+    // -2, -3, ... so canonicalize does the same.
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let nodes = doc
         .nodes
         .iter()
         .map(|n| match n {
-            Node::Block(b) if b.id.is_empty() => {
-                let mut nb = b.clone();
-                nb.id = gen_id(b);
-                Node::Block(nb)
+            Node::Block(b) => {
+                let mut id = if b.id.is_empty() { gen_id(b) } else { b.id.clone() };
+                if seen.contains(&id) {
+                    let base = id.clone();
+                    let mut k = 2;
+                    while seen.contains(&id) {
+                        id = format!("{}-{}", base, k);
+                        k += 1;
+                    }
+                }
+                seen.insert(id.clone());
+                if id == b.id {
+                    n.clone()
+                } else {
+                    let mut nb = b.clone();
+                    nb.id = id;
+                    Node::Block(nb)
+                }
             }
             other => other.clone(),
         })

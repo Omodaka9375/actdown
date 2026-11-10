@@ -136,15 +136,44 @@ export function hydrate(doc: Doc, opts: RuntimeOptions = {}): Runtime {
       for (const [k, v] of Object.entries(block.attrs)) {
         if (typeof v === "string") local[k] = v;
       }
-      await evaluate(parseExpr(on.raw), {
-        scope: { ...local, ...scope },
-        dollar,
-        send: (name, args) => runCap(name, args),
-        limits: opts.limits,
-      });
+      // evaluate() is synchronous, so a capability that returns a promise
+      // yields a bare promise inside the value tree. Collect every send
+      // promise here and await all of them after evaluation: each send
+      // settles (phase regions update), a rejecting send rejects the fire,
+      // and a rejecting send nested in the expression tree can never become
+      // an unhandled rejection.
+      const sends: Promise<Literal>[] = [];
+      let value: unknown;
+      try {
+        value = evaluate(parseExpr(on.raw), {
+          scope: { ...local, ...scope },
+          dollar,
+          send: (name, args) => {
+            const r = runCap(name, args);
+            if (r instanceof Promise) sends.push(r);
+            return r;
+          },
+          limits: opts.limits,
+        });
+      } catch (err) {
+        // Sends made before a parse/eval failure must still be awaited so a
+        // rejecting capability cannot escape as an unhandled rejection.
+        await Promise.allSettled(sends);
+        throw err;
+      }
+      await settleSends(value, sends);
     },
   };
   return runtime;
+}
+
+/** Await every collected send promise; a rejected send rethrows. */
+async function settleSends(value: unknown, sends: Promise<Literal>[]): Promise<void> {
+  if (value instanceof Promise) sends.push(value);
+  const results = await Promise.allSettled(sends);
+  for (const r of results) {
+    if (r.status === "rejected") throw r.reason;
+  }
 }
 
 export { ExprError };

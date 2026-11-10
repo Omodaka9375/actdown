@@ -54,6 +54,14 @@ function mdUrl(u: string): string {
   return u.replace(/[()\\]/g, (c) => (c === "\\" ? "\\\\" : `\\${c}`));
 }
 
+/** Inline code as a CommonMark code span: backtick-safe. */
+function mdCodeSpan(text: string): string {
+  if (!text.includes("`")) return `\`${text}\``;
+  // A double-backtick delimiter can hold single backticks; CommonMark pads
+  // with spaces when the content touches the delimiters.
+  return `\`\` ${text} \`\``;
+}
+
 /** Render an inline subtree as markdown (exported for tests/debug). */
 export function inlineMd(node: HtmlNode): string {
   let out = "";
@@ -82,13 +90,16 @@ function inlineSelf(el: HtmlNode): string {
     case "kbd":
     case "samp":
     case "var":
-      return `\`${textOf(el).trim()}\``;
+      return mdCodeSpan(textOf(el).trim());
     case "a": {
       const href = el.attrs.href;
       return href === undefined ? inlineMd(el) : `[${inlineMd(el).trim()}](${mdUrl(href)})`;
     }
     case "img":
-      return `![${el.attrs.alt ?? ""}](${mdUrl(el.attrs.src ?? "")})`;
+      // alt is raw markup input: escape it so untrusted HTML cannot inject
+      // markdown (a `]` would close the label, a fence line could swallow
+      // following blocks on re-parse).
+      return `![${mdEscape(el.attrs.alt ?? "")}](${mdUrl(el.attrs.src ?? "")})`;
     default:
       return inlineMd(el);
   }
@@ -198,7 +209,12 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
       const code = el.children.find((c): c is HtmlNode => typeof c !== "string" && c.tag === "code");
       const cls = (code?.attrs.class ?? "").match(/(?:language|lang)-([a-zA-Z0-9+#-]+)/);
       const body = textOf(code ?? el).replace(/\n$/, "");
-      pushProse("```" + (cls?.[1] ?? "") + "\n" + body + "\n```");
+      // Canonical output must be re-parse-safe (INV-3): a ``` line inside
+      // <pre> would close the fence early and leak body lines as live
+      // blocks. Emit the fence one longer than the longest body run.
+      const maxRun = Math.max(3, ...[...body.matchAll(/`+/g)].map((m) => m[0].length));
+      const fenceMark = "`".repeat(maxRun + 1);
+      pushProse(fenceMark + (cls?.[1] ?? "") + "\n" + body + "\n" + fenceMark);
     } else if (tag === "blockquote") {
       pushProse(
         inlineMd(el)

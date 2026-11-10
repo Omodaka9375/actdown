@@ -40,7 +40,9 @@ function parseAttrs(raw: string): Record<string, string> {
   while ((m = re.exec(raw)) !== null) {
     const name = m[1]!.toLowerCase();
     const value = m[3] ?? m[4] ?? (m[2] === undefined || m[2] === "" ? "" : m[2]!.replace(/^["']|["']$/g, ""));
-    if (!(name in attrs)) attrs[name] = value;
+    // Own-property check: an attr named "constructor" must not be dropped
+    // by an inherited-key false positive.
+    if (!Object.hasOwn(attrs, name)) attrs[name] = value;
   }
   return attrs;
 }
@@ -132,7 +134,8 @@ export function parseHtml(src: string): HtmlNode {
       const rest = src.slice(i);
       const m = closeRe.exec(rest);
       i = m === null ? src.length : i + m.index + m[0].length;
-      stack.length = Math.max(1, stack.length - 1);
+      // The raw node was appended to its parent above (push); it never
+      // became a stack entry, so there is nothing to pop here.
       continue;
     }
     stack.push(node);
@@ -144,9 +147,12 @@ const ENTITIES: Record<string, string> = {
   amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", copy: "\u00a9",
 };
 
-/** A numeric reference outside the Unicode range decodes to U+FFFD, never a throw. */
+/** A numeric reference outside the Unicode range (or a lone surrogate)
+ * decodes to U+FFFD, never a throw. */
 function codePoint(n: number): string {
-  return n > 0x10ffff || n < 0 ? "\ufffd" : String.fromCodePoint(n);
+  if (n > 0x10ffff || n < 0) return "\ufffd";
+  if (n >= 0xd800 && n <= 0xdfff) return "\ufffd"; // String.fromCodePoint would throw RangeError
+  return String.fromCodePoint(n);
 }
 
 export function decodeEntities(s: string): string {

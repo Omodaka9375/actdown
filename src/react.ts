@@ -1,4 +1,4 @@
-import { display, evalExpr, ExprError, type EvalLimits } from "./expr.js";
+import { display, evalExpr, DEFAULT_LIMITS, ExprError, type EvalLimits } from "./expr.js";
 import { renderNode, type RenderOptions, type Scope } from "./render.js";
 import type { BlockNode, Doc, Expr, Literal, Node } from "./types.js";
 
@@ -41,7 +41,14 @@ export function computeState(doc: Doc, initial?: Record<string, Literal>): Recor
     if (!isBlock(n) || (n.type !== "state" && n.type !== "data")) continue;
     for (const [k, v] of Object.entries(n.fields)) {
       if (isExpr(v)) {
-        scope[k] = evalExpr(v.raw, { scope });
+        // One bad state field must not abort the whole render (SPEC 15:
+        // a render error affects one node, never the document). Budgeted
+        // like every other evaluation site (SEC-4).
+        try {
+          scope[k] = evalExpr(v.raw, { scope, limits: DEFAULT_LIMITS });
+        } catch {
+          scope[k] = null;
+        }
       } else {
         scope[k] = v;
       }
@@ -82,7 +89,9 @@ function renderReactiveNode(n: Node, opts: ReactiveOptions, scope: Scope): strin
     if (!Array.isArray(items)) return "";
     return items
       .map((item, index) => {
-        const clone: BlockNode = { ...n, id: `${n.id}-${index}` };
+        // A block without an id keeps it: `id-0` clones are unresolvable by
+        // runtime listeners, and -0 reads as falsy noise.
+        const clone: BlockNode = { ...n, id: n.id === "" ? "" : `${n.id}-${index}` };
         return renderNode(clone, opts, { ...scope, [spec.item]: item as Literal, [spec.index]: index });
       })
       .join("\n");

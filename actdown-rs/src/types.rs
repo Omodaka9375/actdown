@@ -6,9 +6,10 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize, Serializer};
 
 /// Serialize an f64 the way JavaScript's `JSON.stringify` does: integral
-/// values in range print without a fraction (12 not 12.0). Note: JS switches
-/// to exponent notation above 1e21 / below 1e-7; the spec's fixed-point
-/// integer + IEEE 754 model keeps documents out of that regime.
+/// values within 2^53 print without a fraction (12 not 12.0); everything
+/// else uses the JS number formatting (`js_num_to_string`) fed through a
+/// string, because serde's float serialization does not match JS exponent
+/// forms (1e+21) or the 2^63 saturation of `as i64`.
 pub fn js_num<S: Serializer>(v: &f64, s: S) -> Result<S::Ok, S::Error> {
     if !v.is_finite() {
         return s.serialize_unit(); // JSON.stringify(Infinity/NaN) is null, never a panic
@@ -16,7 +17,7 @@ pub fn js_num<S: Serializer>(v: &f64, s: S) -> Result<S::Ok, S::Error> {
     if *v == v.trunc() && v.abs() < 9.007_199_254_740_992e15 {
         s.serialize_i64(*v as i64)
     } else {
-        s.serialize_f64(*v)
+        s.serialize_str(&crate::literal::js_num_to_string(*v))
     }
 }
 

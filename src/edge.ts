@@ -194,26 +194,53 @@ export async function transcodeUrl(url: string, opts: EdgeOptions = {}): Promise
     throw new EdgeError("E_EDGE_PRIVATE", `refusing private host: ${u.hostname}`, 403);
   }
 
+  // Follow redirects manually: each hop must pass the SSRF guard before it
+  // is fetched. `redirect: "follow"` only re-checks the final URL, so a
+  // chain attacker.com -> private host -> attacker.com would hit the private
+  // host before any check runs.
+  const MAX_REDIRECTS = 5;
   let resp: Response;
-  try {
-    resp = await fetcher(u.toString(), {
-      redirect: "follow",
-      signal: AbortSignal.timeout(cfg.fetchTimeoutMs),
-      headers: { "user-agent": cfg.userAgent, accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8" },
-    });
-  } catch (err: unknown) {
-    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
-      throw new EdgeError("E_EDGE_TIMEOUT", `upstream timed out after ${cfg.fetchTimeoutMs}ms`, 504);
+  let current = u.toString();
+  for (let hop = 0; ; hop += 1) {
+    try {
+      resp = await fetcher(current, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(cfg.fetchTimeoutMs),
+        headers: { "user-agent": cfg.userAgent, accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8" },
+      });
+    } catch (err: unknown) {
+      if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        throw new EdgeError("E_EDGE_TIMEOUT", `upstream timed out after ${cfg.fetchTimeoutMs}ms`, 504);
+      }
+      throw new EdgeError("E_EDGE_FETCH", `fetch failed: ${err instanceof Error ? err.message : String(err)}`, 502);
     }
-    throw new EdgeError("E_EDGE_FETCH", `fetch failed: ${err instanceof Error ? err.message : String(err)}`, 502);
+    if (resp.status !== 301 && resp.status !== 302 && resp.status !== 303 && resp.status !== 307 && resp.status !== 308) {
+      break;
+    }
+    if (hop >= MAX_REDIRECTS) {
+      throw new EdgeError("E_EDGE_FETCH", `too many redirects (> ${MAX_REDIRECTS})`, 502);
+    }
+    const location = resp.headers.get("location");
+    if (location === null) {
+      break; // A redirect without a Location is the end of the chain.
+    }
+    let next: URL;
+    try {
+      next = new URL(location, current);
+    } catch {
+      throw new EdgeError("E_EDGE_FETCH", `redirect location is not a valid URL: ${location}`, 502);
+    }
+    if (next.protocol !== "http:" && next.protocol !== "https:") {
+      throw new EdgeError("E_EDGE_SCHEME", `only http/https is supported, got ${next.protocol}`);
+    }
+    if (!opts.allowPrivate && isPrivateHost(next.hostname)) {
+      throw new EdgeError("E_EDGE_PRIVATE", `redirect refused private host: ${next.hostname}`, 403);
+    }
+    current = next.toString();
   }
 
   if (!resp.ok) {
     throw new EdgeError("E_EDGE_FETCH", `upstream returned ${resp.status} ${resp.statusText}`, 502);
-  }
-  if (!opts.allowPrivate && resp.url !== "" && isPrivateHost(new URL(resp.url).hostname)) {
-    // A redirect smuggled us to a private host.
-    throw new EdgeError("E_EDGE_PRIVATE", `redirect landed on a private host: ${resp.url}`, 403);
   }
   const contentType = resp.headers.get("content-type");
   if (!isHtmlType(contentType)) {

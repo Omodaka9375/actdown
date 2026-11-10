@@ -246,6 +246,11 @@ fn parse_block(
             let val = percent_decode(raw_val).ok_or_else(|| {
                 err("E_BAD_INFO", format!("bad percent-encoding in attribute \"{}\"", key), start_line)
             })?;
+            // TS throws E_DUPLICATE_KEY on repeated info attrs; silently
+            // overwriting would make attr order load-bearing.
+            if attrs.contains_key(key) {
+                return Err(err("E_DUPLICATE_KEY", format!("duplicate attribute \"{}\"", key), start_line));
+            }
             attrs.insert(key.to_string(), val);
         }
     }

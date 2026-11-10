@@ -42,7 +42,10 @@ function escAttr(s: string): string {
  * converted page cannot carry a live script URL (SEC: untrusted content).
  */
 export function safeUrl(u: string): string {
-  const t = u.trim();
+  // Browsers strip tab/newline from URL attributes, so `jav\tascript:` would
+  // pass the scheme check below and still become a live script URL. Strip
+  // them before the scheme checks.
+  const t = u.replace(/[\t\n\r]/g, "").trim();
   if (/^https?:\/\//i.test(t) || /^mailto:/i.test(t) || /^tel:/i.test(t)) return t;
   if (/^[a-z][a-z0-9+.-]*:/i.test(t)) return "#";
   return t;
@@ -106,7 +109,7 @@ export function renderMarkdown(md: string, env?: Scope): string {
   const out: string[] = [];
   let para: string[] = [];
   let list: { ordered: boolean; items: string[] } | null = null;
-  let fence: { lang: string; lines: string[] } | null = null;
+  let fence: { lang: string; lines: string[]; ch: string; len: number } | null = null;
 
   const flushPara = () => {
     if (para.length > 0) {
@@ -126,11 +129,13 @@ export function renderMarkdown(md: string, env?: Scope): string {
     if (fence === null && cf) {
       flushPara();
       flushList();
-      fence = { lang: cf[2]!, lines: [] };
+      fence = { lang: cf[2]!, lines: [], ch: cf[1]![0]!, len: cf[1]!.length };
       continue;
     }
     if (fence !== null) {
-      if (cf && cf[1]!.startsWith(fence.lang === "" ? "`" : cf[1]![0]!)) {
+      // CommonMark: the closing fence must be the same character and at
+      // least as long as the opening one.
+      if (cf && cf[1]![0] === fence.ch && cf[1]!.length >= fence.len) {
         const lang = fence.lang === "" ? "" : ` class="language-${escAttr(fence.lang)}"`;
         out.push(`<pre><code${lang}>${esc(fence.lines.join("\n"))}</code></pre>`);
         fence = null;

@@ -120,7 +120,10 @@ fn unescape_bare(s: &str) -> String {
 fn bare_safe(s: &str) -> bool {
     !s.is_empty()
         && s.trim() == s
-        && !s.chars().any(char::is_whitespace)
+        // JS \s includes U+FEFF (and other Unicode spaces); char::is_whitespace
+        // does not cover all of them, so test with an explicit Unicode space
+        // scan to keep the bare form byte-identical with the TS printer.
+        && !s.chars().any(|c| c.is_whitespace() || c == '\u{feff}' || c == '\u{00a0}' || c == '\u{2028}' || c == '\u{2029}')
         && !s.contains(['\\', '"', '\n'])
         && !is_numeric(s)
         && s != "true"
@@ -192,7 +195,10 @@ pub fn js_stringify_fields(fields: &IndexMap<String, FieldValue>) -> String {
 }
 
 /// JavaScript `Number::toString` / `JSON.stringify` number formatting:
-/// plain fixed notation for 1e-6 <= |v| < 1e21, exponent notation outside it.
+/// fixed notation for 1e-6 <= |v| < 1e21, exponent notation outside it,
+/// integral values within 2^53 as plain integers. Rust's `{}` never emits
+/// exponent notation and saturates `as i64` at 2^63, so the formatting is
+/// built explicitly here.
 pub fn js_num_to_string(v: f64) -> String {
     if !v.is_finite() {
         return "null".into(); // JS JSON.stringify(NaN/Infinity) is null
@@ -201,19 +207,53 @@ pub fn js_num_to_string(v: f64) -> String {
         return "0".into();
     }
     let a = v.abs();
-    if a >= 1e21 || a < 1e-6 {
-        // Rust's `{}` already prints the shortest round-trip mantissa in
-        // scientific form (1e21, 1.5e-7); JS wants a `+` on positive exponents.
-        let s = format!("{}", v);
-        return match s.split_once('e') {
-            Some((m, e)) if !e.starts_with('-') && !e.starts_with('+') => format!("{}e+{}", m, e),
-            _ => s,
-        };
-    }
-    if v == v.trunc() && a < 1e21 {
+    // Integral and within exact-integer range: plain integer form (JS does
+    // this up to 1e21, but beyond 2^53 integers are not exactly representable
+    // anyway; the shortest-round-trip path below handles those).
+    if v == v.trunc() && a < 9.007_199_254_740_992e15 {
         return format!("{}", v as i64);
     }
+    if a >= 1e21 || a < 1e-6 {
+        return js_exp_format(v);
+    }
+    // Fixed notation with the shortest mantissa that round-trips.
+    shortest_fixed(v)
+}
+
+/// JS exponent form: shortest mantissa + `e+NN` / `e-NN` (two-digit minimum).
+fn js_exp_format(v: f64) -> String {
+    // ryu gives the shortest round-trip mantissa and exponent.
+    let raw = format!("{:e}", v); // e.g. "1e21", "1.5e-7"
+    let (mantissa, exp) = raw.split_once('e').expect("{:e} always contains e");
+    let e: i32 = exp.parse().unwrap_or(0);
+    let sign = if e < 0 { "-" } else { "+" };
+    // JS: no zero padding; single digit below 10 (1e-7), two above (1e+21).
+    if e.abs() < 10 {
+        format!("{}e{}{}", mantissa.trim_end_matches(".0"), sign, e.abs())
+    } else {
+        format!("{}e{}{:02}", mantissa.trim_end_matches(".0"), sign, e.abs())
+    }
+}
+
+/// Shortest decimal string in fixed notation that round-trips to `v`.
+fn shortest_fixed(v: f64) -> String {
+    for prec in 0..=17 {
+        let s = format!("{:.*}", prec, v);
+        if s.parse::<f64>() == Ok(v) {
+            return trim_fixed_zeros(&s);
+        }
+    }
+    // Unreachable: 17 significant digits always round-trip.
     format!("{}", v)
+}
+
+/// Strip trailing zeros after the decimal point (and a bare trailing dot).
+fn trim_fixed_zeros(s: &str) -> String {
+    if !s.contains('.') {
+        return s.to_string();
+    }
+    let t = s.trim_end_matches('0').trim_end_matches('.');
+    t.to_string()
 }
 
 fn js_quote(s: &str) -> String {
@@ -246,5 +286,35 @@ fn json_to_literal(v: &serde_json::Value) -> Literal {
         serde_json::Value::Object(entries) => {
             Literal::Obj(entries.iter().map(|(k, v)| (k.clone(), json_to_literal(v))).collect())
         }
+    }
+}
+
+
+#[cfg(test)]
+mod js_num_tests {
+    use super::js_num_to_string;
+
+    #[test]
+    fn js_number_formatting_matches_node() {
+        assert_eq!(js_num_to_string(1e21), "1e+21");
+        assert_eq!(js_num_to_string(1e-7), "1e-7");
+        assert_eq!(js_num_to_string(1.5e-7), "1.5e-7");
+        assert_eq!(js_num_to_string(1e19), "10000000000000000000");
+        assert_eq!(js_num_to_string(1e20), "100000000000000000000");
+        assert_eq!(js_num_to_string(9.3e20), "930000000000000000000");
+        assert_eq!(js_num_to_string(12.0), "12");
+        assert_eq!(js_num_to_string(0.5), "0.5");
+        assert_eq!(js_num_to_string(0.000001), "0.000001");
+        assert_eq!(js_num_to_string(0.0000001), "1e-7");
+        assert_eq!(js_num_to_string(-2.5), "-2.5");
+        assert_eq!(js_num_to_string(1e15), "1000000000000000");
+        assert_eq!(js_num_to_string(1.7976931348623157e308), "1.7976931348623157e+308");
+        assert_eq!(js_num_to_string(5e-324), "5e-324");
+        assert_eq!(js_num_to_string(123456.789), "123456.789");
+        assert_eq!(js_num_to_string(0.1), "0.1");
+        assert_eq!(js_num_to_string(1e-5), "0.00001");
+        assert_eq!(js_num_to_string(-1e21), "-1e+21");
+        assert_eq!(js_num_to_string(123e30), "1.23e+32");
+        assert_eq!(js_num_to_string(0.3), "0.3");
     }
 }

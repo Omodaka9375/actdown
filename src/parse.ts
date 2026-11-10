@@ -141,7 +141,9 @@ function parseBlock(
       } catch {
         throw new ParseError("E_BAD_INFO", `bad percent-encoding in attribute "${key}"`, startLine);
       }
-      if (key in attrs) {
+      // Object.hasOwn: an attr literally named "constructor" must not be
+      // flagged by an inherited-key false positive.
+      if (Object.hasOwn(attrs, key)) {
         throw new ParseError("E_DUPLICATE_KEY", `duplicate attribute "${key}"`, startLine);
       }
       attrs[key] = val;

@@ -300,24 +300,28 @@ class Parser {
             });
           }
           case "{": {
-            const entries: { key: string; value: ExprAst }[] = [];
-            if (!this.atOp("}")) {
-              for (;;) {
-                const kt = this.next();
-                if (kt.t !== "name" && kt.t !== "str") {
-                  throw new ExprError("E_EXPR_PARSE", "expected object key", kt.pos);
+            // Nested like the [ case: an object literal must count toward the
+            // parse depth budget or deep nesting overflows the stack.
+            return this.nested(() => {
+              const entries: { key: string; value: ExprAst }[] = [];
+              if (!this.atOp("}")) {
+                for (;;) {
+                  const kt = this.next();
+                  if (kt.t !== "name" && kt.t !== "str") {
+                    throw new ExprError("E_EXPR_PARSE", "expected object key", kt.pos);
+                  }
+                  this.expectOp(":");
+                  entries.push({ key: kt.v, value: this.or() });
+                  if (this.atOp(",")) {
+                    this.next();
+                    continue;
+                  }
+                  break;
                 }
-                this.expectOp(":");
-                entries.push({ key: kt.v, value: this.or() });
-                if (this.atOp(",")) {
-                  this.next();
-                  continue;
-                }
-                break;
               }
-            }
-            this.expectOp("}");
-            return { k: "obj", entries };
+              this.expectOp("}");
+              return { k: "obj", entries };
+            });
           }
           case "[": {
             return this.nested(() => {
@@ -405,19 +409,26 @@ export function evaluate(ast: ExprAst, ctx: EvalContext): Literal {
       case "null":
         return null;
       case "name": {
-        if (e.name in ctx.scope) return ctx.scope[e.name]!;
+        // Object.hasOwn: an inherited key like "toString" must not resolve.
+        if (Object.hasOwn(ctx.scope, e.name)) return ctx.scope[e.name]!;
         throw new ExprError("E_BIND_UNKNOWN", `unknown binding "${e.name}"`);
       }
       case "dollar": {
-        const v = ctx.dollar?.[e.name];
+        // Same own-property rule for the event payload record.
+        const d = ctx.dollar;
+        const v = d !== undefined && Object.hasOwn(d, e.name) ? d[e.name] : undefined;
         if (v === undefined) throw new ExprError("E_BIND_UNKNOWN", `unknown payload "$${e.name}"`);
         return v;
       }
       case "arr":
         return e.items.map((it) => run(it, depth + 1));
       case "obj": {
+        // defineProperty keeps a "__proto__" key from rewriting the result's
+        // prototype (object literals are data, never types).
         const out: Record<string, Literal> = {};
-        for (const en of e.entries) out[en.key] = run(en.value, depth + 1);
+        for (const en of e.entries) {
+          Object.defineProperty(out, en.key, { value: run(en.value, depth + 1), enumerable: true, writable: true, configurable: true });
+        }
         return out;
       }
       case "get": {
