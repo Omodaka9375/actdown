@@ -1,5 +1,7 @@
 # actdown
 
+[![CI](https://github.com/Omodaka9375/actdown/actions/workflows/ci.yml/badge.svg)](https://github.com/Omodaka9375/actdown/actions/workflows/ci.yml)
+
 **Actionable Markdown: documents that agents can read, write, and operate.**
 
 ![actdown end to end: an agent-authored approval document is audited

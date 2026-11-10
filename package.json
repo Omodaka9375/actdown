@@ -15,6 +15,14 @@
   "engines": {
     "node": ">=20"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Omodaka9375/actdown.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Omodaka9375/actdown/issues"
+  },
+  "homepage": "https://github.com/Omodaka9375/actdown#readme",
   "bin": {
     "actdown": "dist/cli.js"
   },

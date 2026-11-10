@@ -37,4 +37,4 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   exposure.
 - `ad-include` and some form-control rendering are still open.
 
-[0.1.0]: https://github.com/actdown/actdown/releases/tag/v0.1.0
+[0.1.0]: https://github.com/Omodaka9375/actdown/releases/tag/v0.1.0
