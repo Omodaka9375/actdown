@@ -92,8 +92,64 @@ describe("edge core", () => {
       e.name = "TimeoutError";
       return Promise.reject(e);
     };
-    await expect(transcodeUrl("https://x.test/slow", { fetcher: slow })).rejects.toMatchObject({
+    await expect(
+      transcodeUrl("https://x.test/slow", {
+        fetcher: slow,
+        resolver: async () => [{ address: "1.2.3.4", family: 4 }],
+      }),
+    ).rejects.toMatchObject({
       code: "E_EDGE_TIMEOUT",
+    });
+  });
+
+  it("resolves hostnames and refuses private results (SSRF: DNS stage)", async () => {
+    // The public path: a hostname that resolves public is fetched normally.
+    const publicResolver = async () => [{ address: "93.184.216.34", family: 4 }];
+    const result = await transcodeUrl("https://good.test/report", {
+      fetcher: fetcherOf(ok(PAGE)),
+      resolver: publicResolver,
+    });
+    expect(result.source).toBe("https://good.test/report");
+
+    // A hostname that resolves private is refused before any fetch runs.
+    let fetched = false;
+    const probe: typeof fetch = () => {
+      fetched = true;
+      return Promise.resolve(ok(PAGE));
+    };
+    await expect(
+      transcodeUrl("http://evil.test/x", {
+        fetcher: probe,
+        resolver: async () => [{ address: "10.0.0.5", family: 4 }],
+      }),
+    ).rejects.toMatchObject({ code: "E_EDGE_PRIVATE" });
+    expect(fetched).toBe(false);
+
+    await expect(
+      transcodeUrl("http://evil.test/x", {
+        fetcher: probe,
+        resolver: async () => [{ address: "fd00::1", family: 6 }],
+      }),
+    ).rejects.toMatchObject({ code: "E_EDGE_PRIVATE" });
+
+    // Resolution failure is a fetch error, not a silent pass-through.
+    await expect(
+      transcodeUrl("http://gone.test/x", {
+        fetcher: probe,
+        resolver: async () => {
+          throw new Error("ENOTFOUND");
+        },
+      }),
+    ).rejects.toMatchObject({ code: "E_EDGE_FETCH" });
+  });
+
+  it("re-checks DNS on every redirect hop (SSRF: rebinding via redirect)", async () => {
+    const fetcher: typeof fetch = () =>
+      Promise.resolve(new Response(null, { status: 302, headers: { location: "http://hop.test/x" } }));
+    const resolver = async (host: string) =>
+      host === "hop.test" ? [{ address: "192.168.0.9", family: 4 }] : [{ address: "1.2.3.4", family: 4 }];
+    await expect(transcodeUrl("http://start.test/x", { fetcher, resolver })).rejects.toMatchObject({
+      code: "E_EDGE_PRIVATE",
     });
   });
 
@@ -172,8 +228,7 @@ describe("edge gateway (live HTTP)", () => {
     expect(await home.text()).toContain("actdown edge");
   });
 
-  it("refuses private targets when the guard is on", async () => {
-    const edge = createEdgeServer({});
+  it("refuses private targets when the guard is on", async () => {    const edge = createEdgeServer({});
     servers.push(edge);
     const port = await new Promise<number>((resolve) => {
       edge.listen(0, "127.0.0.1", () => resolve((edge.address() as AddressInfo).port));

@@ -403,9 +403,10 @@ to certify arbitrary web content or adversarial network deployments.
 
 Before exposing the gateway beyond a trusted environment, add:
 
-- DNS resolution checks on every redirect and protection against DNS
-  rebinding, backed by restricted network egress. Literal-IP checks alone
-  do not stop a public hostname resolving to a private address.
+- A last-mile DNS-rebinding defense: every hostname (the initial request and
+  each redirect hop) is resolved and checked before it is fetched, but the
+  fetch itself re-resolves at connect time, so a full defense still needs
+  restricted network egress or a connection pinned to the checked address.
 - Authentication or an explicit trusted-client boundary, rate and
   concurrency limits, request-size limits, and an explicit listen address.
 - Fuzzing and property-based parser tests, adversarial redirect tests, and

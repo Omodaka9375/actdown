@@ -7,6 +7,7 @@
 import { canonicalize, print, toJSON } from "./canonical.js";
 import { renderReactive } from "./react.js";
 import { htmlToDoc } from "./html2ad.js";
+import { lookup } from "node:dns/promises";
 import type { Doc } from "./types.js";
 
 export type EdgeErrorCode =
@@ -31,10 +32,14 @@ export class EdgeError extends Error {
 
 export interface EdgeOptions {
   /**
-   * SSRF guard: by default hosts that resolve literally private (loopback,
-   * RFC1918, link-local, unique-local) are refused. Loopback deployments and
-   * tests set this true. DNS-rebinding is out of scope; the guard checks
-   * literal hosts and the post-redirect URL, see isPrivateHost.
+   * SSRF guard: by default hosts that are literally private (loopback,
+   * RFC1918, link-local, unique-local) AND hostnames that RESOLVE private
+   * are refused. The literal check runs first; every hostname (initial and
+   * each redirect hop) is then resolved via DNS and every resolved address
+   * must be public. Loopback deployments and tests set this true.
+   * Residual TOCTOU: the fetch itself re-resolves at connect time, so a
+   * full DNS-rebinding defense still needs restricted network egress
+   * (README, status) or an allowPrivate deployment on a trusted network.
    */
   allowPrivate?: boolean;
   /** Upstream timeout, default 10s. */
@@ -43,6 +48,12 @@ export interface EdgeOptions {
   maxBytes?: number;
   /** Injectable fetch (tests). Signature matches global fetch. */
   fetcher?: typeof fetch;
+  /**
+   * Injectable DNS resolver (tests and policy). Default: `dns.lookup` with
+   * `all: true`, which matches what the fetch will connect through (the OS
+   * resolver, including /etc/hosts). Only called when allowPrivate is false.
+   */
+  resolver?: (hostname: string) => Promise<{ address: string; family: number }[]>;
   /** User agent sent upstream. */
   userAgent?: string;
 }
@@ -55,9 +66,9 @@ const DEFAULTS = {
 
 /**
  * Literal-host SSRF guard: loopback, RFC1918, CGNAT, link-local (v4+v6),
- * unique-local IPv6, and localhost names. Hostnames are resolved by DNS at
- * fetch time; a hostname that RESOLVES private is not caught here (documented
- * limitation for a dev-tool grade transcoder).
+ * unique-local IPv6, and localhost names. Hostnames are additionally resolved
+ * by DNS before every fetch (see resolveChecked); a hostname that resolves
+ * private is refused there.
  */
 function isPrivateV4(a: number, b: number): boolean {
   if (a === 0 || a === 10 || a === 127) return true;
@@ -160,6 +171,40 @@ async function readCapped(
   return out;
 }
 
+/**
+ * Resolve a hostname and refuse any private result (SPEC: SSRF, DNS stage).
+ * A hostname that resolves to a private, loopback, link-local, or otherwise
+ * guarded address throws E_EDGE_PRIVATE; resolution failures are E_EDGE_FETCH.
+ * Literal addresses never reach here: isPrivateHost catches them first.
+ */
+async function resolveChecked(
+  hostname: string,
+  resolver: (host: string) => Promise<{ address: string; family: number }[]>,
+): Promise<void> {
+  let records: { address: string; family: number }[];
+  try {
+    records = await resolver(hostname);
+  } catch (err: unknown) {
+    throw new EdgeError(
+      "E_EDGE_FETCH",
+      `DNS resolution failed for ${hostname}: ${err instanceof Error ? err.message : String(err)}`,
+      502,
+    );
+  }
+  if (records.length === 0) {
+    throw new EdgeError("E_EDGE_FETCH", `DNS resolution returned no addresses for ${hostname}`, 502);
+  }
+  for (const r of records) {
+    if (isPrivateHost(r.address)) {
+      throw new EdgeError(
+        "E_EDGE_PRIVATE",
+        `hostname ${hostname} resolves to private address ${r.address}`,
+        403,
+      );
+    }
+  }
+}
+
 export interface TranscodeResult {
   /** The final URL after redirects. */
   source: string;
@@ -180,6 +225,11 @@ export interface TranscodeResult {
 export async function transcodeUrl(url: string, opts: EdgeOptions = {}): Promise<TranscodeResult> {
   const cfg = { ...DEFAULTS, ...opts };
   const fetcher = opts.fetcher ?? fetch;
+  // DNS is checked per host (initial + every hop); injectable for tests.
+  const defaultResolver = (h: string) => lookup(h, { all: true, verbatim: true });
+  const resolver = opts.resolver ?? defaultResolver;
+  const dnsCheck = (host: string): Promise<void> =>
+    opts.allowPrivate ? Promise.resolve() : resolveChecked(host, resolver);
 
   let u: URL;
   try {
@@ -193,6 +243,7 @@ export async function transcodeUrl(url: string, opts: EdgeOptions = {}): Promise
   if (!opts.allowPrivate && isPrivateHost(u.hostname)) {
     throw new EdgeError("E_EDGE_PRIVATE", `refusing private host: ${u.hostname}`, 403);
   }
+  await dnsCheck(u.hostname);
 
   // Follow redirects manually: each hop must pass the SSRF guard before it
   // is fetched. `redirect: "follow"` only re-checks the final URL, so a
@@ -236,6 +287,7 @@ export async function transcodeUrl(url: string, opts: EdgeOptions = {}): Promise
     if (!opts.allowPrivate && isPrivateHost(next.hostname)) {
       throw new EdgeError("E_EDGE_PRIVATE", `redirect refused private host: ${next.hostname}`, 403);
     }
+    await dnsCheck(next.hostname);
     current = next.toString();
   }
 

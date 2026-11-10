@@ -10,6 +10,13 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
 
 ### Added
 
+- Edge gateway hardening: every hostname (initial request and each redirect
+  hop) is resolved via DNS and refused when any resolved address is private,
+  loopback, or link-local (`E_EDGE_PRIVATE`). Resolution failures map to
+  `E_EDGE_FETCH`. The resolver is injectable (`EdgeOptions.resolver`) for
+  tests and policy. A residual connect-time re-resolution window remains;
+  full DNS-rebinding defense still needs restricted network egress.
+
 - Markdown superset with `ad-*` fenced blocks: state, data, action, form,
   table, image, link, chart, region (level 1), bindings, `when=`/`each=`
   (level 2), expression language and async phase regions (level 3).
