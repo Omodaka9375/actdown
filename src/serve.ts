@@ -14,6 +14,7 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { EdgeError, formatConversion, transcodeUrl, type EdgeFormat, type EdgeOptions } from "./edge.js";
 
 const FORMATS: readonly EdgeFormat[] = ["canonical", "ast", "html", "raw"];
@@ -37,10 +38,16 @@ function esc(s: string): string {
 }
 
 /** The dual-pane transcoder view (DESIGN.md UX sketch 3). */
-function viewPage(url: string | null): string {
+function viewPage(url: string | null, token: string | null = null): string {
+  // The UI and its iframes cannot set Authorization headers, so when auth is
+  // on the token rides in the URL (hidden field + iframe srcs); it is
+  // redacted from logs and Referrer-Policy: no-referrer covers the rest.
+  const tokenQuery = token === null ? "" : `&token=${encodeURIComponent(token)}`;
+  const tokenField = token === null ? "" : `<input type="hidden" name="token" value="${esc(token)}">`;
   const form = `<form method="get" action="/view">
     <label for="url">URL</label>
     <input id="url" name="url" type="url" placeholder="https://example.com" value="${url === null ? "" : esc(url)}" required>
+    ${tokenField}
     <button>Transcode</button>
   </form>`;
   const header = `<header><strong>actdown edge</strong>${form}</header>`;
@@ -56,7 +63,7 @@ pane shows the canonical text.</p>
 <code>html</code>, <code>raw</code>.</p>
 </div></body></html>`;
   }
-  const src = `/transcode?url=${encodeURIComponent(url)}`;
+  const src = esc(`/transcode?url=${encodeURIComponent(url)}${tokenQuery}`);
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>actdown edge: ${esc(url)}</title>
 <style>${UI_STYLE}</style></head><body>${header}
 <main>
@@ -65,10 +72,13 @@ pane shows the canonical text.</p>
 </main></body></html>`;
 }
 
-function send(res: ServerResponse, status: number, body: string, contentType: string): void {
+function send(res: ServerResponse, status: number, body: string, contentType: string, extraHeaders: Record<string, string> = {}): void {
   const headers: Record<string, string> = {
     "content-type": contentType,
     "x-content-type-options": "nosniff",
+    // Tokens may appear in URLs (?token=); never leak them via Referer.
+    "referrer-policy": "no-referrer",
+    ...extraHeaders,
   };
   if (contentType.startsWith("text/html")) {
     // Transcoded content is untrusted: it must never run script on this origin.
@@ -91,6 +101,40 @@ function parseFormat(q: URLSearchParams): EdgeFormat {
   return (FORMATS as readonly string[]).includes(f) ? (f as EdgeFormat) : "canonical";
 }
 
+/**
+ * Length-normalized constant-time token compare: digest both sides to a
+ * fixed 32-byte hash, then timingSafeEqual. Never compare raw strings.
+ */
+function tokenMatches(presented: string, expected: string): boolean {
+  const a = createHash("sha256").update(presented).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * Extract the token a client presented: `Authorization: Bearer <t>` first
+ * (the agent surface), then `?token=<t>` (the browser UI, whose iframes
+ * cannot set headers). A malformed Authorization header returns null
+ * WITHOUT falling through to the query parameter: an explicit broken
+ * credential is an error, not an absence.
+ */
+function presentedToken(req: IncomingMessage, u: URL): string | null {
+  const header = req.headers.authorization;
+  if (header !== undefined) {
+    const m = /^Bearer\s+(\S+)\s*$/i.exec(header.trim());
+    return m === null ? null : m[1]!;
+  }
+  return u.searchParams.get("token");
+}
+
+/** u.search with any token parameter value masked, for request logs. */
+function redactedSearch(u: URL): string {
+  if (u.search === "") return "";
+  const params = new URLSearchParams(u.search);
+  if (params.has("token")) params.set("token", "REDACTED");
+  return `?${params.toString()}`;
+}
+
 export interface ServeOptions extends EdgeOptions {
   /** Called per request for logging; default: silent. */
   onRequest?: (line: string) => void;
@@ -110,6 +154,17 @@ export interface ServeOptions extends EdgeOptions {
    * Default 8.
    */
   maxConcurrent?: number;
+  /**
+   * Shared auth token for untrusted networks (env EDGE_TOKEN). When set,
+   * every route except /healthz requires the token, presented as
+   * `Authorization: Bearer <token>` (agents) or `?token=<token>` (the
+   * browser UI and its iframes, which cannot set headers). Compared
+   * constant-time. The token is redacted from request logs; responses
+   * carry Referrer-Policy: no-referrer so a token-bearing URL is not
+   * leaked to transcoded origins via Referer. Omitting it on a
+   * non-loopback bind is possible but warned about in main().
+   */
+  authToken?: string;
 }
 
 /** Fixed-window per-IP rate limiter (dev-grade; a proxy makes all clients one IP). */
@@ -141,6 +196,7 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
   const tooManyRequests = rateLimiter(opts.rateLimit ?? 120);
   let inFlight = 0;
   const maxConcurrent = opts.maxConcurrent ?? 8;
+  const authToken = opts.authToken;
   /** Acquire a concurrency slot for an upstream transcode. */
   const slot = (): boolean => {
     if (inFlight >= maxConcurrent) return false;
@@ -150,7 +206,7 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
   return createServer((req: IncomingMessage, res: ServerResponse) => {
     const u = new URL(req.url ?? "/", "http://localhost");
     res.on("finish", () => {
-      log(`${new Date().toISOString()} ${req.method} ${u.pathname}${u.search} -> ${res.statusCode}`);
+      log(`${new Date().toISOString()} ${req.method} ${u.pathname}${redactedSearch(u)} -> ${res.statusCode}`);
     });
     void (async () => {
       // Inbound size cap: GET/HEAD should not carry a body; reject any that
@@ -161,6 +217,26 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
         return;
       }
       const ip = req.socket.remoteAddress ?? "unknown";
+      // Shared-token gate for untrusted networks. /healthz stays open (it is
+      // a liveness probe and reveals nothing). Checked before the rate
+      // limiter so an attacker cannot poison a shared IP's bucket with
+      // unauthenticated traffic, and so 401s are unstateful and cheap.
+      if (authToken !== undefined && u.pathname !== "/healthz") {
+        const presented = presentedToken(req, u);
+        if (presented === null || !tokenMatches(presented, authToken)) {
+          send(
+            res,
+            401,
+            JSON.stringify({
+              code: "E_EDGE_UNAUTHORIZED",
+              message: "missing or invalid token: pass Authorization: Bearer <token> or ?token=<token>",
+            }),
+            "application/json; charset=utf-8",
+            { "www-authenticate": 'Bearer realm="actdown-edge", charset="UTF-8"' },
+          );
+          return;
+        }
+      }
       if (tooManyRequests(ip)) {
         send(res, 429, JSON.stringify({ code: "E_EDGE_RATE", message: "rate limit exceeded, slow down" }), "application/json; charset=utf-8");
         return;
@@ -176,7 +252,7 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
           return;
         }
         case "/": {
-          send(res, 200, viewPage(null), "text/html; charset=utf-8");
+          send(res, 200, viewPage(null, authToken ?? null), "text/html; charset=utf-8");
           return;
         }
         case "/view": {
@@ -200,7 +276,7 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
               inFlight -= 1;
             }
           }
-          send(res, 200, viewPage(target), "text/html; charset=utf-8");
+          send(res, 200, viewPage(target, authToken ?? null), "text/html; charset=utf-8");
           return;
         }
         case "/transcode": {
@@ -232,18 +308,33 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
   });
 }
 
+function isLoopbackHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+  return h === "localhost" || h.startsWith("127.") || h === "::1" || h === "::";
+}
+
 /** Entry point: node dist/serve.js (PORT env or 8787, HOST env or 127.0.0.1). */
 function main(): void {
   const port = Number(process.env.PORT ?? 8787);
   // Explicit listen address, loopback by default: a dev tool must not expose
   // itself on all interfaces unless the operator asks for it (HOST=0.0.0.0).
-  // Loopback doubles as the trusted-client boundary; anything wider needs the
-  // auth story in README (status).
   const host = process.env.HOST ?? "127.0.0.1";
   const rateLimit = process.env.EDGE_RATE_LIMIT === undefined ? undefined : Number(process.env.EDGE_RATE_LIMIT);
+  const rawToken = process.env.EDGE_TOKEN;
+  const authToken = rawToken === undefined || rawToken === "" ? undefined : rawToken;
+  if (authToken === undefined && !isLoopbackHost(host)) {
+    process.stderr.write(
+      `warning: HOST=${host} is not a loopback address and EDGE_TOKEN is not set; ` +
+        "the gateway will accept unauthenticated requests from any reachable client\n",
+    );
+  }
+  if (authToken !== undefined && authToken.length < 16) {
+    process.stderr.write("warning: EDGE_TOKEN is short; use at least 16 random characters\n");
+  }
   const server = createEdgeServer({
     allowPrivate: process.env.EDGE_ALLOW_PRIVATE === "1",
     rateLimit: Number.isFinite(rateLimit) ? rateLimit : undefined,
+    authToken,
     onRequest: (line) => {
       process.stdout.write(`${line}\n`);
     },

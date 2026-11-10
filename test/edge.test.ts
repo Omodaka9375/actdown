@@ -296,3 +296,87 @@ describe("edge gateway (live HTTP)", () => {
     expect(((await resp.json()) as { code: string }).code).toBe("E_EDGE_PRIVATE");
   });
 });
+
+describe("edge gateway auth (untrusted networks)", () => {
+  const servers: Server[] = [];
+
+  afterEach(() => {
+    for (const s of servers.splice(0)) s.close();
+  });
+
+  const TOKEN = "s3cret-edge-token-value";
+
+  const start = async (opts: Parameters<typeof createEdgeServer>[0]): Promise<string> => {
+    const edge = createEdgeServer(opts);
+    servers.push(edge);
+    return new Promise((resolve) => {
+      edge.listen(0, "127.0.0.1", () => resolve(`http://127.0.0.1:${(edge.address() as AddressInfo).port}`));
+    });
+  };
+
+  it("refuses missing, wrong, and malformed credentials (401 E_EDGE_UNAUTHORIZED)", async () => {
+    const base = await start({ authToken: TOKEN, onRequest: () => {} });
+
+    // /healthz stays open: it is a liveness probe and reveals nothing.
+    expect((await fetch(`${base}/healthz`)).status).toBe(200);
+
+    const missing = await fetch(`${base}/transcode?url=${encodeURIComponent("https://example.com/x")}`);
+    expect(missing.status).toBe(401);
+    expect(((await missing.json()) as { code: string }).code).toBe("E_EDGE_UNAUTHORIZED");
+    expect(missing.headers.get("www-authenticate")).toContain("Bearer");
+
+    const wrong = await fetch(`${base}/?token=not-the-token`);
+    expect(wrong.status).toBe(401);
+
+    // A malformed Authorization header is an error, not a fallthrough to ?token=.
+    const malformed = await fetch(`${base}/?token=${encodeURIComponent(TOKEN)}`, {
+      headers: { authorization: "Basic dXNlcjpwYXNz" },
+    });
+    expect(malformed.status).toBe(401);
+  });
+
+  it("accepts the token via Bearer header (agents) and ?token= (browser UI)", async () => {
+    // A fresh Response per call: response bodies are one-shot.
+    const base = await start({
+      authToken: TOKEN,
+      allowPrivate: true,
+      fetcher: async () => ok(PAGE),
+      onRequest: () => {},
+    });
+
+    const viaHeader = await fetch(`${base}/transcode?url=${encodeURIComponent("https://example.com/r")}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(viaHeader.status).toBe(200);
+    expect(viaHeader.headers.get("content-type")).toBe("text/x-ad; charset=utf-8");
+    expect(await viaHeader.text()).toContain("# Weekly report");
+
+    const viaQuery = await fetch(
+      `${base}/transcode?url=${encodeURIComponent("https://example.com/r")}&token=${encodeURIComponent(TOKEN)}`,
+    );
+    expect(viaQuery.status).toBe(200);
+  });
+
+  it("propagates the token into the view iframes and redacts it from logs", async () => {
+    const lines: string[] = [];
+    const base = await start({
+      authToken: TOKEN,
+      allowPrivate: true,
+      fetcher: async () => ok(PAGE),
+      onRequest: (l) => lines.push(l),
+    });
+
+    const page = await fetch(
+      `${base}/view?url=${encodeURIComponent("https://example.com/r")}&token=${encodeURIComponent(TOKEN)}`,
+    );
+    expect(page.status).toBe(200);
+    const body = await page.text();
+    // Both iframes (rendered + canonical) and the hidden form field carry the
+    // token, so the browser UI keeps working without setting headers.
+    expect(body.split(`&amp;token=${TOKEN}`).length - 1).toBe(2);
+    expect(body).toContain(`value="${TOKEN}"`);
+    // ...but the request log must not.
+    expect(lines.some((l) => l.includes(TOKEN))).toBe(false);
+    expect(lines.some((l) => l.includes("token=REDACTED"))).toBe(true);
+  });
+});

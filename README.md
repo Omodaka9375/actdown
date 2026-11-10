@@ -308,6 +308,16 @@ requests per minute, default 120, `429 E_EDGE_RATE`), an in-flight
 transcode cap (`503 E_EDGE_BUSY`), and an inbound body cap (`413
 E_EDGE_TOO_LARGE`). Every request is logged to stdout as one line.
 
+For untrusted networks, set `EDGE_TOKEN` to a shared secret (at least 16
+random characters). Every route except `/healthz` then requires the token:
+agents send `Authorization: Bearer <token>`, browsers (and the `/view`
+iframes, which cannot set headers) append `?token=<token>`. The comparison
+is constant-time, the token is redacted from request logs, and responses
+carry `Referrer-Policy: no-referrer` so a token-bearing URL is not leaked
+to transcoded origins. Refused requests are `401 E_EDGE_UNAUTHORIZED`.
+Binding a non-loopback `HOST` without `EDGE_TOKEN` prints a warning at
+startup.
+
 The SSRF guard refuses literal private, loopback, link-local, and mapped
 IPv6 targets, and additionally refuses hostnames that RESOLVE to such
 addresses (checked before the initial request and before every redirect
@@ -408,10 +418,13 @@ Before exposing the gateway beyond a trusted environment, add:
   each redirect hop) is resolved and checked before it is fetched, but the
   fetch itself re-resolves at connect time, so a full defense still needs
   restricted network egress or a connection pinned to the checked address.
-- Authentication for untrusted networks: the gateway now binds to loopback
-  by default (`HOST` widens it deliberately) and enforces a per-IP request
-  rate, an in-flight transcode cap, and an inbound body cap; real auth for
-  a wider trusted-client boundary is still open.
+- Authentication for untrusted networks: covered by a shared token
+  (`EDGE_TOKEN`, constant-time compared, redacted in logs); the gateway
+  binds to loopback by default (`HOST` widens it deliberately) and also
+  enforces a per-IP request rate, an in-flight transcode cap, and an
+  inbound body cap. Per-user identities, TLS termination, and token
+  rotation are still open; put a TLS-terminating proxy in front for any
+  real deployment (the gateway itself serves plain HTTP).
 - Fuzzing and property-based parser tests, adversarial redirect tests, and
   real-browser tests for the DOM adapter.
 - Broader CI and operations: the test matrix now covers Node 20/22/24 with
