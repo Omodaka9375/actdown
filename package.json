@@ -6,6 +6,9 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "actdown": "dist/cli.js"
+  },
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -13,7 +16,8 @@
     "verify": "node scripts/verify.mjs",
     "verify:rs": "cargo test --manifest-path actdown-rs/Cargo.toml",
     "edge": "node dist/serve.js",
-    "demo": "node examples/mcp-approval/demo.mjs"
+    "demo": "node examples/mcp-approval/demo.mjs",
+    "cli": "node dist/cli.js"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

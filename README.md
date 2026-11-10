@@ -191,6 +191,21 @@ pnpm verify        # tsc, then the full vitest suite
 pnpm verify:rs     # cargo test for actdown-rs
 ```
 
+## CLI
+
+A zero-dependency command line ships with the package (`bin: actdown`,
+run locally via `pnpm cli`). `-` or no file reads stdin.
+
+```sh
+pnpm cli check   examples/mcp-approval/approval.ad   # diagnostics, exit 1 on any
+pnpm cli fmt     doc.ad                             # canonical form (diffable)
+pnpm cli ast     doc.ad                             # JSON AST
+pnpm cli render  doc.ad                             # static HTML
+pnpm cli render  doc.ad --reactive                  # HTML with state applied
+pnpm cli html2ad page.html                          # HTML -> canonical ad
+cat page.html | pnpm cli html2ad - > page.ad        # stdin works too
+```
+
 ## TypeScript example
 
 After `pnpm build`, use `./dist/index.js` from this repository. If this
