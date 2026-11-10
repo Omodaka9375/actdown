@@ -321,12 +321,11 @@ used for controlled local fixtures, never for an exposed gateway.
 
 ## Playground
 
-`actdown-rs/playground.html` is a single self-contained file: a live editor
+A hosted build is live at **https://omodaka9375.github.io/actdown/** (GitHub
+Pages, rebuilt whenever the engine changes). To run it locally, open
+`actdown-rs/playground.html`, a single self-contained file: a live editor
 next to the rendered document, with the whole Rust engine compiled to WASM
-base64-embedded inside it. No server, no bundler, no network. Open it in a
-browser (from `http://` or a local static server; some browsers restrict
-large modules on `file://`), edit the `.ad` source on the left, and the
-output pane re-renders live. Tabs switch between the rendered document,
+base64-embedded inside it. No server, no bundler, no network. Tabs switch between the rendered document,
 static HTML, canonical text, and the JSON AST.
 
 Build it with:
