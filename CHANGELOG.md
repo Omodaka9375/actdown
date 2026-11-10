@@ -71,18 +71,19 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
 - Zero-dependency stdio MCP server (`src/mcp.ts`, JSON-RPC 2.0).
 - CLI: `actdown check | fmt | ast | render | html2ad`, stdin supported.
 - Rust port (`actdown-rs`) byte-exact with the reference implementation on
-  all 7 conformance vectors (ast/canonical/html/reactive goldens); WASM
+  all 10 conformance vectors (ast/canonical/html/reactive goldens); WASM
   build via a flat C ABI (`src/wasm.rs`) and a self-contained playground.
-- Shared conformance vectors (`vectors/`) and a 97-test vitest suite.
+- Shared conformance vectors (`vectors/`) and a 141-test vitest suite.
 
 ### Known limits
 
 - Rust capabilities are synchronous; TypeScript capabilities may be async,
   so async phase behavior is not identical across implementations.
-- The edge gateway is a development preview: no auth, no rate limits, and
-  no DNS-rebinding protection beyond literal-IP checks. Not for public
-  exposure.
-- `ad-include` and some form-control rendering are still open.
+- The edge gateway is a development preview: shared-token auth, per-IP
+  rate limits, and an SSRF resolution guard are in, but it still serves
+  plain HTTP, the fetch re-resolves DNS at connect time (a rebinding
+  TOCTOU window), and per-user identities, TLS, and token rotation are
+  open. Front it with a TLS proxy; not for public exposure.
 
 ### Fixed
 

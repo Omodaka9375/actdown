@@ -166,7 +166,7 @@ src/           TypeScript reference implementation
   mcp.ts         stdio MCP server (JSON-RPC 2.0, zero dependencies)
   html2ad.ts    legacy HTML to canonical ad (SPEC 12)
   edge.ts/serve.ts  the edge transcoder service
-test/          vitest suite (97 tests)
+test/          vitest suite (141 tests)
 vectors/       cross-implementation conformance suite (SPEC 13)
 actdown-rs/   Rust port (parser, canonical, render, expr, react, runtime)
   src/wasm.rs    flat C ABI exports for the browser playground
@@ -387,7 +387,7 @@ the report format (`pass | fail(<vector>:<golden>) | skip(<level>)`).
 ## Rust / WASM port
 
 `actdown-rs` mirrors the reference implementation byte for byte on the
-spec surfaces (all 7 vectors pass all 4 goldens) and builds for
+spec surfaces (all 10 vectors pass all 4 goldens) and builds for
 `wasm32-unknown-unknown`:
 
 ```sh
@@ -409,8 +409,9 @@ interactive node carries a stable id and semantic role (INV-5).
 
 This is **draft 0.1, suitable for local tools and controlled internal
 experiments, not a production-ready public service**. The TypeScript and
-Rust suites currently cover the same seven vectors, but that is not enough
-to certify arbitrary web content or adversarial network deployments.
+Rust suites currently cover the same ten conformance vectors, but that is
+not enough to certify arbitrary web content or adversarial network
+deployments.
 
 Before exposing the gateway beyond a trusted environment, add:
 
