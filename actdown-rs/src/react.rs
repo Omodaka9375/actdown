@@ -163,6 +163,43 @@ fn render_reactive_node_ctx(n: &Node, scope: &Scope, phases: Option<&PhaseMap>) 
     Ok(render_node(n, RenderCtx { env: Some(scope), phases, registry: None }))
 }
 
+/// Re-evaluate only the expression-backed entries against the current scope
+/// after a patch (SPEC 5 parity with the TS recomputeExprState): literal
+/// fields are host-owned and never re-seeded, expression fields track their
+/// inputs. Data blocks with an id rebuild their nested object's expression
+/// fields in place.
+pub fn recompute_expr_state(doc: &Doc, scope: &mut Scope) {
+    for n in &doc.nodes {
+        let Node::Block(b) = n else { continue };
+        if b.block_type != "state" && b.block_type != "data" {
+            continue;
+        }
+        if b.block_type == "data" && !b.id.is_empty() {
+            let current = scope.get(&b.id).cloned().unwrap_or(Literal::Obj(Scope::new()));
+            let mut merged = match current {
+                Literal::Obj(map) => map,
+                _ => Scope::new(),
+            };
+            for (k, v) in &b.fields {
+                if let FieldValue::Expr(e) = v {
+                    let value =
+                        eval_expr(&e.raw, &mut EvalContext::render(scope)).unwrap_or(Literal::Null);
+                    merged.insert(k.clone(), value);
+                }
+            }
+            scope.insert(b.id.clone(), Literal::Obj(merged));
+            continue;
+        }
+        for (k, v) in &b.fields {
+            if let FieldValue::Expr(e) = v {
+                let value =
+                    eval_expr(&e.raw, &mut EvalContext::render(scope)).unwrap_or(Literal::Null);
+                scope.insert(k.clone(), value);
+            }
+        }
+    }
+}
+
 /// Render a document with its state resolved and applied (SPEC 5/11).
 pub fn render_reactive(doc: &Doc) -> Result<String, ExprError> {
     let scope = compute_state(doc, None)?;

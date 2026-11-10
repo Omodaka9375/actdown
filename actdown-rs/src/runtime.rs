@@ -161,10 +161,13 @@ impl<'a> Runtime<'a> {
     }
 
     /// Apply a state patch and re-render all bindings in one pass (SPEC 5).
+    /// Expression-backed fields recompute after the patch (TS parity);
+    /// literal fields are host-owned and never re-seeded.
     pub fn set(&mut self, patch: Scope) {
         for (k, v) in patch {
             self.scope.insert(k, v);
         }
+        crate::react::recompute_expr_state(&self.doc, &mut self.scope);
     }
 
     /// Current reactive HTML (SPEC 11) with phase regions applied.

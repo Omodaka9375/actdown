@@ -16,7 +16,16 @@ pub fn parse_field(value: &str, line: u32) -> Result<FieldValue, ParseError> {
     let c = s.as_bytes()[0];
     if c == b'"' || c == b'[' || c == b'{' {
         return match serde_json::from_str::<serde_json::Value>(s) {
-            Ok(v) => Ok(FieldValue::Lit(json_to_literal(&v))),
+            Ok(v) => {
+                // Nested non-finite numbers: serde_json accepts out-of-range
+                // floats (1e999 -> inf), which cannot round-trip (they would
+                // serialize as null). Reject them (TS parity, SPEC 4.1).
+                if has_non_finite(&v) {
+                    Err(err("E_BAD_LITERAL", "number out of range", line))
+                } else {
+                    Ok(FieldValue::Lit(json_to_literal(&v)))
+                }
+            }
             Err(_) => {
                 if c == b'"' {
                     Err(err("E_UNTERMINATED_STRING", "unterminated string literal", line))
@@ -274,6 +283,17 @@ fn js_quote(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// True when any number anywhere in the parsed JSON value is non-finite
+/// (serde_json accepts 1e999 as infinity; it cannot round-trip).
+fn has_non_finite(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Number(n) => !n.as_f64().map_or(true, f64::is_finite),
+        serde_json::Value::Array(items) => items.iter().any(has_non_finite),
+        serde_json::Value::Object(entries) => entries.values().any(has_non_finite),
+        _ => false,
+    }
 }
 
 fn json_to_literal(v: &serde_json::Value) -> Literal {

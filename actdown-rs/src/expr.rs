@@ -132,7 +132,9 @@ fn tokenize(src: &str) -> Result<Vec<Tok>, ExprError> {
                         // (\uD83D\uDE00 is one astral character, not two
                         // replacement chars). Lone surrogates stay U+FFFD.
                         if (0xd800..=0xdbff).contains(&cp) {
-                            let low = src.get(i + 6..i + 11).unwrap_or("");
+                            // At this point i is at the 'u' of the high
+                            // escape; the next 6 chars would be "\uXXXX".
+                            let low = src.get(i + 5..i + 11).unwrap_or("");
                             let low_hex = low.strip_prefix("\\u").unwrap_or("");
                             if low_hex.len() == 4 && low_hex.chars().all(|h| h.is_ascii_hexdigit()) {
                                 if let Ok(lo) = u32::from_str_radix(low_hex, 16) {

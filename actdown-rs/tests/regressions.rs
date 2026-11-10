@@ -3,8 +3,8 @@
 //! behavior it locks to the TypeScript reference implementation.
 
 use actdown::{
-    compute_state, eval_expr, hydrate, hydrate_with_initial, parse, parse_field, parse_expr,
-    render, render_reactive, CapabilityRegistry, CapResult, Literal, Scope,
+    compute_state, eval_expr, hydrate, parse, parse_field, parse_expr, render, render_reactive,
+    CapabilityRegistry, CapResult, Literal, Scope,
 };
 use actdown::expr::EvalContext;
 
@@ -44,10 +44,11 @@ fn cap_registry_refuses_ungranted_capability() {
 #[test]
 fn c0_controls_cannot_smuggle_a_script_scheme() {
     // Mirrors the TS safeUrl fix: leading C0 controls are stripped the way the
-    // URL parser would before scheme validation.
-    let res = parse("```ad-link\nhref: \"\u{1}javascript:alert(1)\"\n---\nx\n```");
-    let html = render(&res.doc);
-    assert!(html.contains("href=\"#\""), "{}", html);
+    // URL parser would before scheme validation. (A raw control char inside
+    // a JSON string field is rejected by JSON itself; safeUrl is the guard.)
+    assert_eq!(actdown::safe_url("\u{1}javascript:alert(1)"), "#");
+    assert_eq!(actdown::safe_url(" javascript:alert(1)"), "#");
+    assert_eq!(actdown::safe_url("https://ok.example/x"), "https://ok.example/x");
 }
 
 #[test]
@@ -157,16 +158,18 @@ fn computed_state_recomputes_after_patches() {
     let src = "```ad-state\ncount: 1\ntotal: {count + 1}\n```";
     let doc = parse(src).doc;
     let caps = CapabilityRegistry::new();
-    let rt = hydrate(doc, &caps).unwrap();
+    let mut rt = hydrate(doc, &caps).unwrap();
     assert_eq!(rt.state().get("total"), Some(&Literal::Num(2.0)));
-    // Re-hydrating with an initial simulates a patch (Rust caps are sync).
-    let doc2 = parse(src).doc;
-    let caps2 = CapabilityRegistry::new();
-    let rt2 = hydrate_with_initial(
-        doc2,
-        &caps2,
-        scope(&[("count", Literal::Num(10.0))]),
-    )
-    .unwrap();
-    assert_eq!(rt2.state().get("total"), Some(&Literal::Num(11.0)));
+    // A patch recomputes expression-backed fields (Rust set parity, SPEC 5).
+    let mut patch = Scope::new();
+    patch.insert("count".to_string(), Literal::Num(10.0));
+    rt.set(patch);
+    assert_eq!(rt.state().get("total"), Some(&Literal::Num(11.0)));
+    // A literal-named field is host-owned: the recompute pass must not
+    // re-seed it from the document.
+    let mut patch2 = Scope::new();
+    patch2.insert("count".to_string(), Literal::Num(10.0));
+    patch2.insert("title".to_string(), Literal::Num(99.0));
+    rt.set(patch2);
+    assert_eq!(rt.state().get("title"), Some(&Literal::Num(99.0)));
 }

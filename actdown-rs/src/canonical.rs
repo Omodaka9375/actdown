@@ -110,9 +110,12 @@ fn print_prose(md: &str) -> String {
         .map(|l| {
             let stripped = l.trim_end_matches([' ', '\t']);
             let removed = &l[stripped.len()..];
-            // Exactly two trailing spaces is a hard break; everything else is stripped.
-            if removed == "  " {
-                l.to_string()
+            // A trailing run of 2+ spaces is a CommonMark hard break:
+            // normalize every qualifying run to exactly two spaces so
+            // meaning survives printing (three+ spaces degrade to a hard
+            // break too, not to nothing). Runs containing a tab are stripped.
+            if removed.len() >= 2 && !removed.contains('\t') {
+                format!("{stripped}  ")
             } else {
                 stripped.to_string()
             }
