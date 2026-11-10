@@ -35,6 +35,11 @@
       "level": 3,
       "description": "ad-region phase blocks (pending/success/failure) keyed by an action id; the static render keeps every region hidden (SPEC 4/7).",
       "goldens": ["ast.json", "canonical.ad", "html.html", "reactive.html"]
+    },
+    "0008-prose-table": {
+      "level": 0,
+      "description": "GFM pipe tables inside prose render as <table> (header, body rows, alignment colons parsed); prose parsing is renderer-owned (SPEC 9).",
+      "goldens": ["ast.json", "canonical.ad", "html.html", "reactive.html"]
     }
   }
 }

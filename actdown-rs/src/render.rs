@@ -163,6 +163,51 @@ fn quote_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"^>[ \t]?(.*)$").unwrap())
 }
 
+/// One row of a GFM pipe table: strip the optional edge pipes, split, trim.
+fn split_row(s: &str) -> Vec<&str> {
+    let t = s.trim();
+    let t = t.strip_prefix('|').unwrap_or(t);
+    let t = t.strip_suffix('|').unwrap_or(t);
+    t.split('|').map(|c| c.trim()).collect()
+}
+
+/// A delimiter row: `|---|:---:|` style; every cell is `:?-+:?`.
+fn is_delim_row(s: &str) -> bool {
+    if !s.contains('|') {
+        return false;
+    }
+    let cells = split_row(s);
+    !cells.is_empty()
+        && cells.iter().all(|c| {
+            let b = c.as_bytes();
+            match b.len() {
+                0 => false,
+                1 => b[0] == b'-',
+                _ => {
+                    (b[0] == b':' || b[0] == b'-')
+                        && (b[b.len() - 1] == b':' || b[b.len() - 1] == b'-')
+                        && b[1..b.len() - 1].iter().all(|&ch| ch == b'-')
+                }
+            }
+        })
+}
+
+fn prose_table(header: Vec<&str>, rows: &[Vec<&str>], ctx: RenderCtx) -> String {
+    let ths: Vec<String> = header.iter().map(|c| format!("<th>{}</th>", inline(c, ctx))).collect();
+    let body: Vec<String> = rows
+        .iter()
+        .map(|r| {
+            let tds: Vec<String> = r.iter().map(|c| format!("<td>{}</td>", inline(c, ctx))).collect();
+            format!("<tr>{}</tr>", tds.join(""))
+        })
+        .collect();
+    format!(
+        "<table>\n<thead><tr>{}</tr></thead>\n<tbody>\n{}\n</tbody>\n</table>",
+        ths.join(""),
+        body.join("\n")
+    )
+}
+
 pub fn render_markdown(md: &str, ctx: RenderCtx) -> String {
     let lines: Vec<&str> = md.split('\n').collect();
     let mut out: Vec<String> = Vec::new();
@@ -186,7 +231,15 @@ pub fn render_markdown(md: &str, ctx: RenderCtx) -> String {
         }
     }
 
-    for ln in &lines {
+    // Rows below this index were already consumed by a prose table; the
+    // guard at the top of the loop skips them (the TS port advances its
+    // index instead).
+    let mut consumed_until = 0usize;
+    for (i, ln_ref) in lines.iter().enumerate() {
+        let ln: &str = ln_ref;
+        if i < consumed_until {
+            continue;
+        }
         let cf = fence_open_re.captures(ln);
         if fence.is_none() {
             if let Some(c) = cf {
@@ -213,6 +266,22 @@ pub fn render_markdown(md: &str, ctx: RenderCtx) -> String {
             } else {
                 fence.as_mut().unwrap().1.push(ln);
             }
+            continue;
+        }
+        // GFM pipe table: a row followed by a delimiter row; body rows
+        // continue until a line without a pipe (blank or paragraph text ends
+        // the table).
+        if ln.contains('|') && i + 1 < lines.len() && is_delim_row(lines[i + 1]) {
+            flush_para(&mut out, &mut para, ctx);
+            flush_list(&mut out, &mut list, ctx);
+            let mut rows: Vec<Vec<&str>> = Vec::new();
+            let mut j = i + 2;
+            while j < lines.len() && !lines[j].trim().is_empty() && lines[j].contains('|') {
+                rows.push(split_row(lines[j]));
+                j += 1;
+            }
+            consumed_until = j;
+            out.push(prose_table(split_row(ln), &rows, ctx));
             continue;
         }
         if let Some(h) = heading_re().captures(ln) {

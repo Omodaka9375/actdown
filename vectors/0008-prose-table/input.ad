@@ -1,0 +1,14 @@
+# Change summary
+
+The release contains 7 files changed across 3 commits:
+
+| area | change | risk |
+|---|---|---|
+| payments | **retry** policy for declined cards | medium |
+| cart | latency fix on session lookup | low |
+
+| left | center | right |
+| :--- | :---: | ---: |
+| a | b | c |
+
+After the table, prose continues.

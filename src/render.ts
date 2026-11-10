@@ -91,9 +91,31 @@ function dataAttrs(b: BlockNode): string {
 
 // ---------------------------------------------------------------------------
 // Prose: a minimal CommonMark-subset renderer (headings, lists, fences,
-// blockquotes, paragraphs, inline emphasis/code/links). SPEC 11 allows the
-// implementation to plug any markdown renderer in via RenderOptions.
+// blockquotes, GFM pipe tables, paragraphs, inline emphasis/code/links). SPEC
+// 11 allows the implementation to plug any markdown renderer in via
+// RenderOptions.
 // ---------------------------------------------------------------------------
+
+/** One row of a GFM pipe table: strip the optional edge pipes, split, trim. */
+function splitRow(s: string): string[] {
+  const t = s.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return t.split("|").map((c) => c.trim());
+}
+
+/** A delimiter row: `|---|:---:|` style; every cell is `:?-+:?`. */
+function isDelimRow(s: string): boolean {
+  if (!s.includes("|")) return false;
+  const cells = splitRow(s);
+  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c));
+}
+
+function proseTable(header: string[], rows: string[][], env?: Scope): string {
+  const ths = header.map((c) => `<th>${inline(c, env)}</th>`).join("");
+  const body = rows
+    .map((r) => `<tr>${r.map((c) => `<td>${inline(c, env)}</td>`).join("")}</tr>`)
+    .join("\n");
+  return `<table>\n<thead><tr>${ths}</tr></thead>\n<tbody>\n${body}\n</tbody>\n</table>`;
+}
 
 function inline(s: string, env?: Scope): string {
   let out = bind(s, env);
@@ -124,7 +146,8 @@ export function renderMarkdown(md: string, env?: Scope): string {
     list = null;
   };
 
-  for (const ln of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i]!;
     const cf = /^(`{3,}|~{3,})[ \t]*(\S*)/.exec(ln);
     if (fence === null && cf) {
       flushPara();
@@ -142,6 +165,21 @@ export function renderMarkdown(md: string, env?: Scope): string {
       } else {
         fence.lines.push(ln);
       }
+      continue;
+    }
+    // GFM pipe table: a row followed by a delimiter row; body rows continue
+    // until a line without a pipe (blank or paragraph text ends the table).
+    if (ln.includes("|") && i + 1 < lines.length && isDelimRow(lines[i + 1]!)) {
+      flushPara();
+      flushList();
+      const rows: string[][] = [];
+      let j = i + 2;
+      while (j < lines.length && lines[j]!.trim() !== "" && lines[j]!.includes("|")) {
+        rows.push(splitRow(lines[j]!));
+        j++;
+      }
+      i = j - 1;
+      out.push(proseTable(splitRow(ln), rows, env));
       continue;
     }
     const h = /^(#{1,6})[ \t]+(.*)$/.exec(ln);

@@ -37,4 +37,10 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   exposure.
 - `ad-include` and some form-control rendering are still open.
 
+### Fixed
+
+- GFM pipe tables inside prose now render as `<table>` in both
+  implementations; previously they fell through to paragraph text and the
+  `|---|` delimiter row printed literally.
+
 [0.1.0]: https://github.com/Omodaka9375/actdown/releases/tag/v0.1.0
