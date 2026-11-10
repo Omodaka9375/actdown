@@ -43,6 +43,11 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   `actdown_check` in the MCP server includes them. The linter is exported
   as `lint(doc)`; the Rust port does not implement it yet (tooling, not a
   spec surface).
+- MCP server expansion: a new `actdown_html2ad` tool converts HTML pages to
+  canonical ad (returning `{ canonical, notes, source }`), and the server
+  now advertises resources: `actdown://guide/authoring` and
+  `actdown://guide/grammar` embed an authoring guide and block-grammar
+  reference so an agent can learn the format in-session.
 
 - Markdown superset with `ad-*` fenced blocks: state, data, action, form,
   table, image, link, chart, region (level 1), bindings, `when=`/`each=`

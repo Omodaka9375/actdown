@@ -44,8 +44,25 @@ expect("initialize returns serverInfo", init.result?.serverInfo?.name === "actdo
 
 const list = await call("tools/list", {});
 const names = list.result?.tools?.map((t) => t.name) ?? [];
-expect("tools/list has 5 tools", names.length === 5, names.join(","));
+expect("tools/list has 6 tools", names.length === 6, names.join(","));
 expect("render tool listed", names.includes("actdown_render"));
+
+const initCaps = init.result?.capabilities ?? {};
+expect("resources capability advertised", initCaps?.resources !== undefined, JSON.stringify(initCaps));
+const resources = await call("resources/list", {});
+const uris = resources.result?.resources?.map((r) => r.uri) ?? [];
+expect("resources/list has 2 guides", uris.length === 2, uris.join(","));
+const guide = await call("resources/read", { uri: "actdown://guide/grammar" });
+expect(
+  "resources/read returns the guide",
+  guide.result?.contents?.[0]?.text?.includes("ad-chart") === true,
+  JSON.stringify(guide.result)?.slice(0, 120),
+);
+
+const html = "<html><body><h1>Report</h1><p>Up <b>12%</b>.</p></body></html>";
+const conv = await call("tools/call", { name: "actdown_html2ad", arguments: { html, source: "https://example.com" } });
+const convText = conv.result?.content?.[0]?.text ?? "";
+expect("html2ad returns canonical ad", convText.includes('"canonical"') && convText.includes("# Report"), convText.slice(0, 200));
 
 const doc = `# Hi
 

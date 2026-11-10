@@ -15,6 +15,11 @@
  *   actdown_canonical  doc -> canonical text (SPEC 9/10)
  *   actdown_ast        doc -> JSON AST (SPEC 8)
  *   actdown_check      doc -> diagnostics array (empty when valid)
+ *   actdown_html2ad    html -> canonical ad (lossy downconversion, SPEC 12)
+ *
+ * Resources (embedded guides so an agent can learn the format in-session):
+ *   actdown://guide/authoring   how to write .ad documents
+ *   actdown://guide/grammar     block grammar quick reference
  */
 import { createInterface } from "node:readline";
 import type { JSONRPCRequest } from "./jsonrpc.js";
@@ -27,6 +32,7 @@ import {
   lint,
   render,
   renderReactive,
+  htmlToDoc,
 } from "./index.js";
 
 // --- tool implementations ---------------------------------------------------
@@ -39,11 +45,11 @@ function text(x: string): ToolResult {
   return { content: [{ type: "text", text: x }] };
 }
 
-type ToolArgs = { doc: string };
+type ToolArgs = { doc?: string; html?: string; source?: string };
 
 /** Validate the input document; return diagnostics (empty when valid). */
-function checkDoc(input: string) {
-  const result = parse(input);
+function checkDoc(input: string | undefined) {
+  const result = parse(input ?? "");
   const hard = result.diagnostics.map((d) => ({
     code: d.code,
     message: d.message,
@@ -80,7 +86,7 @@ const TOOLS: Record<
     run(args) {
       const diags = checkDoc(args.doc);
       if (diags.length > 0) return text(JSON.stringify({ diagnostics: diags }, null, 2));
-      return text(renderReactive(canonicalize(parse(args.doc).doc)));
+      return text(renderReactive(canonicalize(parse(args.doc ?? "").doc)));
     },
   },
   actdown_html: {
@@ -95,7 +101,7 @@ const TOOLS: Record<
     run(args) {
       const diags = checkDoc(args.doc);
       if (diags.length > 0) return text(JSON.stringify({ diagnostics: diags }, null, 2));
-      return text(render(canonicalize(parse(args.doc).doc)));
+      return text(render(canonicalize(parse(args.doc ?? "").doc)));
     },
   },
   actdown_canonical: {
@@ -111,7 +117,7 @@ const TOOLS: Record<
     run(args) {
       const diags = checkDoc(args.doc);
       if (diags.length > 0) return text(JSON.stringify({ diagnostics: diags }, null, 2));
-      return text(format(print(canonicalize(parse(args.doc).doc))));
+      return text(format(print(canonicalize(parse(args.doc ?? "").doc))));
     },
   },
   actdown_ast: {
@@ -126,7 +132,7 @@ const TOOLS: Record<
     run(args) {
       const diags = checkDoc(args.doc);
       if (diags.length > 0) return text(JSON.stringify({ diagnostics: diags }, null, 2));
-      return text(toJSON(canonicalize(parse(args.doc).doc)));
+      return text(toJSON(canonicalize(parse(args.doc ?? "").doc)));
     },
   },
   actdown_check: {
@@ -139,8 +145,173 @@ const TOOLS: Record<
       required: ["doc"],
     },
     run(args) {
-      return text(JSON.stringify({ diagnostics: checkDoc(args.doc) }, null, 2));
+      return text(JSON.stringify({ diagnostics: checkDoc(args.doc ?? "") }, null, 2));
     },
+  },
+  actdown_html2ad: {
+    description:
+      "Convert an existing HTML page to canonical actdown (lossy downconversion, " +
+      "SPEC 12): semantic elements map to blocks, presentation-only markup " +
+      "collapses into prose, scripts are recorded for audit and never carried. " +
+      "Returns JSON { canonical, notes, source }. Input: { html: string, source?: string }.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        html: { type: "string", description: "The HTML source to convert." },
+        source: { type: "string", description: "Optional origin URL recorded in the document." },
+      },
+      required: ["html"],
+    },
+    run(args) {
+      const { doc, notes } = htmlToDoc(args.html ?? "", { source: args.source });
+      return text(
+        JSON.stringify(
+          {
+            canonical: format(print(canonicalize(doc))),
+            notes,
+            source: args.source ?? "",
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  },
+};
+
+// --- embedded guides (resources) --------------------------------------------
+// The server ships its own documentation so an agent can learn the format in
+// the same session where it writes documents.
+
+const AUTHORING_GUIDE = `# Authoring actdown (.ad) documents
+
+actdown (short: ad) is a Markdown superset: prose stays plain Markdown, and
+fenced code blocks with an \`ad-*\` info string add state, structure, forms,
+and actions. The document is text; it cannot carry JavaScript. Actions name
+*capabilities* that the host application grants; ungranted capabilities render
+disabled and refuse to run.
+
+## Levels
+
+- Level 0: plain Markdown.
+- Level 1: structural blocks (state, data, action, form, table, image, link,
+  chart, list, region, manifest).
+- Level 2: bindings ({expr} in text), when= guards, each= repetition.
+- Level 3: full expression language, computed state, async phase regions.
+
+## Field grammar
+
+Inside an ad-* block, lines are \`key: value\` where value is JSON (strings,
+numbers, booleans, null, arrays, objects) or a bare word. A line of just
+\`---\` separates fields from body text:
+
+\`\`\`ad-text
+body: Hello
+\`\`\`
+
+\`\`\`ad-link?href=https://example.com
+---
+Read the docs
+\`\`\`
+
+Body-only blocks need the \`---\` separator first; otherwise every line is
+parsed as a field.
+
+## State, actions, regions
+
+\`\`\`ad-state
+count: 0
+\`\`\`
+
+\`\`\`ad-action?name=counter.inc&role=primary&when=!approved
+id: add
+on:click: cap.send("counter.inc", { by: 1 })
+---
+Add one ({count})
+\`\`\`
+
+- \`name=\` names the capability the host must grant.
+- \`when=\` is an expression guard; the block renders only when it holds.
+- \`id:\` must be unique; generated ids are h<sha1[0:10]>.
+- ad-region blocks with \`for: <action-id>\` and \`phase: pending|success|failure\`
+  switch on async progress.
+
+## Forms
+
+\`\`\`ad-form?id=contact&action=cap:contact-form@v1
+email:   input(email, required, maxlength=320)
+score:   input(number, min=0, max=10)
+channel: select(options=["email", "slack"])
+message: textarea(maxlength=500)
+send:    submit(label="Send")
+\`\`\`
+
+Control kinds: input(TYPE, ...), textarea(...), select(..., options=[...]),
+checkbox, submit(...). Validation opts: required, min=, max=, pattern=,
+maxlength=. value= seeds initial content.
+
+## Reviewing
+
+actdown check reports lints: W_REGION_FOR (region points at a missing id),
+W_EXPR_SYNTAX (unparseable when=/each=), W_CAP_UNDECLARED (an action names a
+capability no ad-manifest declares).
+
+## Rules
+
+The JSON AST (ad: "0.1") is the contract. Canonicalization is total and
+idempotent: format(doc) is byte-stable and diffable. There is no script
+syntax (INV-4): if a document seems to need code, it needs a capability.
+`;
+
+const GRAMMAR_REFERENCE = `# ad-* block grammar quick reference
+
+Info string: \`\`\`ad-TYPE or \`\`\`ad-TYPE?key=value&key=value.
+Percent-encoding applies to attribute values. Unknown types degrade to plain
+code fences in Markdown viewers (INV-1).
+
+- ad-state      field set; the document's shared state (flat map).
+- ad-data       field set published as data; consumers bind to id.key.
+- ad-text       body: text (fields.body or body text) with {expr} bindings.
+- ad-action     attrs: name (capability), role, when; body is the label.
+                on:click: expression fires on click via the host runtime.
+- ad-form       fields are controls: NAME: CONTROL(opts); body-less.
+                Phases key on the form's block id (ad-region for:).
+- ad-region     for: <action-or-form id>, phase: pending|success|failure;
+                body shows while that phase is active.
+- ad-manifest   declares a capability: name, min-version, scopes.
+- ad-table      body is a GFM markdown table; the AST stores parsed rows.
+- ad-image      src, alt (required); width, height (numbers).
+- ad-link       href (required); body is the label.
+- ad-chart      type: line|bar|pie|spark; data: rows (arrays, objects, or
+                flat scalars); columns: header names; src: external data.
+                Renders <figure data-ad-chart> with a <table> fallback.
+- ad-list       body list markers or items: [...]; ordered via N. markers
+                or ordered: true.
+- ad-include    include another document by path (SPEC 4.5).
+
+Roles (SPEC 8): button, link, input, label, heading, chart, table, image,
+form, region, status, nav, danger, primary, secondary. Private extensions
+use the x- prefix.
+
+Diagnostics: parse errors are E_* (E_DUP_ID, E_BAD_FIELD, E_BAD_LITERAL,
+...); review lints are W_* (W_REGION_FOR, W_EXPR_SYNTAX, W_CAP_UNDECLARED).
+`;
+
+const RESOURCES: Record<
+  string,
+  { name: string; description: string; mimeType: string; text: string }
+> = {
+  "actdown://guide/authoring": {
+    name: "authoring-guide",
+    description: "How to write actdown (.ad) documents: fields, actions, forms, regions, lints.",
+    mimeType: "text/markdown",
+    text: AUTHORING_GUIDE,
+  },
+  "actdown://guide/grammar": {
+    name: "grammar-reference",
+    description: "Quick reference for every ad-* block type, roles, and diagnostics.",
+    mimeType: "text/markdown",
+    text: GRAMMAR_REFERENCE,
   },
 };
 
@@ -163,7 +334,7 @@ function handle(msg: JSONRPCRequest): void {
   if (method === "initialize") {
     reply(id, {
       protocolVersion: params?.protocolVersion ?? "2025-06-18",
-      capabilities: { tools: {} },
+      capabilities: { tools: {}, resources: {} },
       serverInfo: SERVER_INFO,
     });
     return;
@@ -179,6 +350,29 @@ function handle(msg: JSONRPCRequest): void {
         description: t.description,
         inputSchema: t.inputSchema,
       })),
+    });
+    return;
+  }
+  if (method === "resources/list") {
+    reply(id, {
+      resources: Object.entries(RESOURCES).map(([uri, r]) => ({
+        uri,
+        name: r.name,
+        description: r.description,
+        mimeType: r.mimeType,
+      })),
+    });
+    return;
+  }
+  if (method === "resources/read") {
+    const uri = params?.uri;
+    const r = typeof uri === "string" ? RESOURCES[uri] : undefined;
+    if (r === undefined) {
+      fail(id, -32602, `unknown resource: ${String(uri)}`);
+      return;
+    }
+    reply(id, {
+      contents: [{ uri, mimeType: r.mimeType, text: r.text }],
     });
     return;
   }

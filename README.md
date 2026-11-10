@@ -361,7 +361,13 @@ bindgen glue.
 | `actdown_html` | static level-1 HTML |
 | `actdown_canonical` | canonical text (review-diffable) |
 | `actdown_ast` | the JSON AST (`ad: "0.1"` contract) |
-| `actdown_check` | diagnostics only (empty array when valid) |
+| `actdown_check` | diagnostics and review lints (empty array when valid) |
+| `actdown_html2ad` | HTML page to canonical ad (lossy, SPEC 12) |
+
+Two resources ship embedded so an agent can learn the format in-session:
+`actdown://guide/authoring` (how to write documents) and
+`actdown://guide/grammar` (block grammar reference), exposed via
+`resources/list` and `resources/read`.
 
 Build and register it with the same stdio command an MCP client expects:
 
