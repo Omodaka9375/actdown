@@ -22,40 +22,25 @@ header, `.ad` documents, and `data-ad-*` HTML attributes.
 
 ## Who is it for?
 
-Every user below has the same underlying problem: **they want their agent to
-be able to offer an action safely, without giving it code execution or
-building a screen by hand.** Today they must choose between shipping agent
-code (dangerous, heavy) or giving the agent nothing (it becomes a text
-printer). actdown is the third option.
+You want your agent to offer an action safely, without shipping it code or
+hand-building a screen. actdown is that middle option.
 
-**Agent-platform developers.** They build the bot or copilot that calls real
-tools: deploy, refund, delete. Today every tool call happens silently, or
-they hand-build an approval screen per action. With actdown the agent
-proposes its own screen as a text file, and they write the capability wiring
-once: ten tools means ten short documents plus one shared renderer, not ten
-custom UIs.
-
-**Security and compliance reviewers.** They sign off on what agents may do.
-If an agent ships a JavaScript bundle with its approval form, review means
-auditing compiled code. With actdown the artifact is auditable text: the
-document lists every side effect it could ever have, ungranted capabilities
-refuse to run, and review is a diff. See the
-[approval demo](examples/mcp-approval/) for that flow end to end.
-
-**Internal-tools teams.** They maintain dashboards where staff approve agent
-proposals. Screens there are hand-coded React; every change needs a pull
-request and a deploy. actdown documents are data, not code: screen content
-ships as text, updates like content, renders with no build step, and still
-reads fine in a plain Markdown viewer.
-
-**Agent-framework authors.** They maintain an open-source agent library and
-cannot ship a UI framework inside it. Their library only emits text, which
-is enough: if the user's host understands ad, the text becomes buttons; if
-not, it degrades to readable Markdown. Zero dependency on this project.
+- **Agent-platform developers.** You build the bot or copilot that calls real
+  tools. The agent proposes its own screen as a text file; you write the
+  capability wiring once, not one custom UI per tool.
+- **Security and compliance reviewers.** You sign off on what agents may do.
+  The artifact is auditable text: the document lists every side effect it
+  could ever have, and review is a diff. See the
+  [approval demo](examples/mcp-approval/) end to end.
+- **Internal-tools teams.** You maintain dashboards where staff approve agent
+  proposals. Screen content ships as text, updates like content, and renders
+  with no build step.
+- **Agent-framework authors.** You maintain a library that only emits text.
+  If the host understands ad, the text becomes buttons; if not, it degrades
+  to readable Markdown. Zero dependency on this project.
 
 It is not a no-code website builder, a general replacement for React, or a
-way to run untrusted application code. End users interact with the HTML or
-native UI produced by a host application; they do not need to learn ad.
+way to run untrusted application code. End users never need to learn ad.
 
 ## Why actdown?
 
