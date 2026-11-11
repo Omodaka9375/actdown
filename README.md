@@ -318,6 +318,19 @@ to transcoded origins. Refused requests are `401 E_EDGE_UNAUTHORIZED`.
 Binding a non-loopback `HOST` without `EDGE_TOKEN` prints a warning at
 startup.
 
+For named identities (who did what in the logs) use per-identity tokens:
+`EDGE_TOKENS="bot=tok-1\nhuman=tok-2"` (inline) or a file with one
+`name=token` pair per line via `EDGE_TOKENS_FILE`. Any valid token
+authenticates as its identity, `EDGE_TOKEN` still works as the shared
+"default", and the file is re-read per request, so rotation is: add the
+new token, let clients switch, then remove the old one with no restart.
+Behind a TLS-terminating proxy, set `EDGE_TRUST_PROXY=1` so the rate limit
+keys on the forwarded client instead of the proxy's socket address; only
+do this when the proxy is trusted (a client can forge the header).
+`EDGE_TLS_CERT` + `EDGE_TLS_KEY` turn on native HTTPS termination for
+small deployments; for real deployments put a dedicated TLS proxy in
+front (client certificates, HSTS, ACME).
+
 The SSRF guard refuses literal private, loopback, link-local, and mapped
 IPv6 targets, and additionally refuses hostnames that RESOLVE to such
 addresses (checked before the initial request and before every redirect
@@ -420,14 +433,22 @@ Before exposing the gateway beyond a trusted environment, add:
   fetch itself re-resolves at connect time, so a full defense still needs
   restricted network egress or a connection pinned to the checked address.
 - Authentication for untrusted networks: covered by a shared token
-  (`EDGE_TOKEN`, constant-time compared, redacted in logs); the gateway
-  binds to loopback by default (`HOST` widens it deliberately) and also
-  enforces a per-IP request rate, an in-flight transcode cap, and an
-  inbound body cap. Per-user identities, TLS termination, and token
-  rotation are still open; put a TLS-terminating proxy in front for any
-  real deployment (the gateway itself serves plain HTTP).
+  (`EDGE_TOKEN`) or per-identity tokens (`EDGE_TOKENS` / `EDGE_TOKENS_FILE`,
+  each token mapped to a named identity; the file is re-read per request, so
+  rotation is add-new-token, clients switch, remove-old-token without a
+  restart). All compares are constant-time and tokens are redacted from
+  logs; the gateway binds to loopback by default (`HOST` widens it
+  deliberately) and also enforces a per-client request rate (keyed on the
+  socket address, or the X-Forwarded-For first hop behind a trusted proxy
+  with `EDGE_TRUST_PROXY=1`), an in-flight transcode cap, and an inbound
+  body cap. Native TLS termination ships via `EDGE_TLS_CERT` + `EDGE_TLS_KEY`
+  for small deployments; for real deployments a dedicated TLS-terminating
+  proxy in front remains the recommended shape (client certificates,
+  HSTS, ACME).
 - Fuzzing and property-based parser tests, adversarial redirect tests, and
-  real-browser tests for the DOM adapter.
+  real-browser tests for the DOM adapter are in place (`test/property.test.ts`,
+  `test/edge.test.ts`, `test/browser-dom.test.ts`; the browser suite skips
+  when no Chrome/Edge binary is available).
 - Broader CI and operations: the test matrix now covers Node 20/22/24 with
   a dependency-audit job, weekly Dependabot updates, and per-request
   gateway logging plus `/healthz`; a browser-matrix job and a release
@@ -440,8 +461,8 @@ Cycle protection is `E_INCLUDE_CYCLE`; a src that cannot be loaded is
 `E_INCLUDE_UNRESOLVED`; `cap:` sources stay verbatim for the host to
 resolve. Include paths resolve against the entry document's directory.
 
-Feature work still open includes real-browser tests for the DOM adapter and
-Rust-side review lints. Rust capabilities are synchronous
+Feature work still open includes Rust-side review lints. Rust capabilities
+are synchronous
 while TypeScript capabilities may be asynchronous, so async phase behavior
 is not identical. Do not treat capability names as a security sandbox for
 host functions: capability implementations themselves remain trusted host

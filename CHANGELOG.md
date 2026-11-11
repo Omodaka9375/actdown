@@ -10,6 +10,25 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
 
 ### Added
 
+- Gateway auth hardening: per-identity tokens (`EDGE_TOKENS` inline text or
+  `EDGE_TOKENS_FILE`, `name=token` per line; the file is re-read per request
+  so rotation needs no restart, and overlap during rotation works), native
+  TLS termination (`EDGE_TLS_CERT` + `EDGE_TLS_KEY`), and an opt-in
+  `EDGE_TRUST_PROXY=1` mode that keys the per-client rate limit on the
+  X-Forwarded-For first hop for deployments behind a TLS-terminating proxy
+  (the default remains the socket address, which a client cannot spoof).
+- Test hardening: a deterministic property/fuzz suite
+  (`test/property.test.ts`) for the document parser, the expression
+  parser, html2ad, and the reactive render (parse/expr throw only typed
+  diagnostics; `format` is total and idempotent; html2ad output always
+  reparses), adversarial redirect tests (loop bounded by the hop cap,
+  malformed or missing Location, scheme downgrade, over-cap chains,
+  per-hop SSRF re-checks), and real-browser DOM-adapter tests
+  (`test/browser-dom.test.ts`, headless Chrome/Edge over the DevTools
+  protocol; skipped when no browser is available). The fuzzer found and
+  the fix landed: an unclosed fence's verbatim raw absorbed the
+  document-terminating newline on re-parse, so every `format` pass grew a
+  foreign block by one blank line (INV-3); fixed in both implementations.
 - Edge gateway hardening: every hostname (initial request and each redirect
   hop) is resolved via DNS and refused when any resolved address is private,
   loopback, or link-local (`E_EDGE_PRIVATE`). Resolution failures map to
@@ -73,17 +92,18 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
 - Rust port (`actdown-rs`) byte-exact with the reference implementation on
   all 10 conformance vectors (ast/canonical/html/reactive goldens); WASM
   build via a flat C ABI (`src/wasm.rs`) and a self-contained playground.
-- Shared conformance vectors (`vectors/`) and a 141-test vitest suite.
+- Shared conformance vectors (`vectors/`) and a 154-test vitest suite.
 
 ### Known limits
 
 - Rust capabilities are synchronous; TypeScript capabilities may be async,
   so async phase behavior is not identical across implementations.
-- The edge gateway is a development preview: shared-token auth, per-IP
-  rate limits, and an SSRF resolution guard are in, but it still serves
-  plain HTTP, the fetch re-resolves DNS at connect time (a rebinding
-  TOCTOU window), and per-user identities, TLS, and token rotation are
-  open. Front it with a TLS proxy; not for public exposure.
+- The edge gateway is a development preview: shared-token and per-identity
+  auth, native TLS termination, rate limits, and an SSRF resolution guard
+  are in, but the fetch re-resolves DNS at connect time (a rebinding TOCTOU
+  window), and per-user identities beyond named tokens (real accounts),
+  client certificates, and ACME are open. Front it with a TLS proxy for
+  real deployments; not for public exposure.
 
 ### Fixed
 

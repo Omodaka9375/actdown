@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { EdgeError, formatConversion, isPrivateHost, transcodeUrl, type EdgeOptions } from "../src/edge.js";
-import { createEdgeServer } from "../src/serve.js";
+import { createEdgeServer, parseTokenPairs } from "../src/serve.js";
 import { createServer, request, type RequestListener, type Server } from "node:http";
 import { AddressInfo } from "node:net";
 
@@ -451,5 +451,112 @@ describe("edge gateway auth (untrusted networks)", () => {
     // ...but the request log must not.
     expect(lines.some((l) => l.includes(TOKEN))).toBe(false);
     expect(lines.some((l) => l.includes("token=REDACTED"))).toBe(true);
+  });
+
+  it("per-identity tokens: each token authenticates as its own identity, rotation without restart", async () => {
+    const base = await start({
+      authTokens: parseTokenPairs("# ci token\nbot=circle-ci-token-0123456789\nhuman=alice-token-0123456789"),
+      allowPrivate: true,
+      fetcher: async () => ok(PAGE),
+    });
+
+    // Each valid token authenticates; the identity is recorded on the log.
+    for (const t of ["circle-ci-token-0123456789", "alice-token-0123456789"]) {
+      const r = await fetch(`${base}/healthz`, { headers: { authorization: `Bearer ${t}` } });
+      expect(r.status).toBe(200);
+    }
+    const bad = await fetch(`${base}/transcode?url=https://example.com/r`, {
+      headers: { authorization: "Bearer wrong-token-0123456789" },
+    });
+    expect(bad.status).toBe(401);
+
+    // Rotation: a function-valued token set is re-read per request, so a
+    // server started against a mutable set picks up changes live.
+    const mutable = { text: "bot=old-token-0123456789abcdef" };
+    const rotBase = await start({
+      authTokens: () => parseTokenPairs(mutable.text),
+      allowPrivate: true,
+      fetcher: async () => ok(PAGE),
+    });
+    const url = `${rotBase}/transcode?url=${encodeURIComponent("https://example.com/r")}`;
+    const before = await fetch(url, { headers: { authorization: "Bearer old-token-0123456789abcdef" } });
+    expect(before.status).toBe(200);
+    mutable.text = "bot=new-token-fedcba987654321\nhuman=old-token-0123456789abcdef";
+    const rotated = await fetch(url, { headers: { authorization: "Bearer new-token-fedcba987654321" } });
+    expect(rotated.status).toBe(200);
+    const oldStillValid = await fetch(url, { headers: { authorization: "Bearer old-token-0123456789abcdef" } });
+    expect(oldStillValid.status).toBe(200); // grace overlap works
+    mutable.text = "bot=new-token-fedcba987654321";
+    const revoked = await fetch(url, { headers: { authorization: "Bearer old-token-0123456789abcdef" } });
+    expect(revoked.status).toBe(401); // then it is gone
+  });
+
+  it("trustProxy: rate bucket keys on X-Forwarded-For when enabled, socket IP otherwise", async () => {
+    // Two forged-header clients share a bucket when trustProxy is on: the
+    // shared 2-request budget below proves the key came from the header.
+    const startTight = async (trustProxy: boolean): Promise<string> =>
+      start({ trustProxy, rateLimit: 2, onRequest: () => {} });
+    const base = await startTight(true);
+    const fwd = async (): Promise<number> =>
+      (await fetch(`${base}/healthz`, { headers: { "x-forwarded-for": "203.0.113.9, 10.0.0.1" } })).status;
+    expect(await fwd()).toBe(200);
+    expect(await fwd()).toBe(200);
+    expect(await fwd()).toBe(429); // same forged bucket
+    // Different forwarded IP gets its own bucket.
+    const other = await fetch(`${base}/healthz`, { headers: { "x-forwarded-for": "203.0.113.8" } });
+    expect(other.status).toBe(200);
+
+    // Without trustProxy the socket address is the key: forged XFF values
+    // do NOT create distinct buckets (all three requests share one).
+    const plainBase = await startTight(false);
+    const p1 = await fetch(`${plainBase}/healthz`, { headers: { "x-forwarded-for": "203.0.113.9" } });
+    const p2 = await fetch(`${plainBase}/healthz`, { headers: { "x-forwarded-for": "203.0.113.8" } });
+    const p3 = await fetch(`${plainBase}/healthz`, { headers: { "x-forwarded-for": "203.0.113.7" } });
+    expect([p1.status, p2.status, p3.status]).toEqual([200, 200, 429]);
+  });
+
+  it("native TLS (opts.tls): serves https with the same routes", async () => {
+    let cert: string;
+    let key: string;
+    try {
+      ({ cert, key } = (await import("../src/testcert.js")).selfSignedCert("actdown-test"));
+    } catch {
+      return; // openssl unavailable: TLS covered in docs/CI
+    }
+    if (cert === "") return; // openssl unavailable: TLS covered in docs/CI
+    const https = await import("node:https");
+    const edge = createEdgeServer({
+      tls: { key, cert },
+      allowPrivate: true,
+      fetcher: async () => ok(PAGE),
+    });
+    servers.push(edge as unknown as Server);
+    const port = await new Promise<number>((resolve) => {
+      edge.listen(0, "127.0.0.1", () => resolve((edge.address() as AddressInfo).port));
+    });
+    const agent = new https.Agent({ rejectUnauthorized: false });
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = https.request({ host: "127.0.0.1", port, path: "/healthz", agent, method: "GET" }, (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    expect(status).toBe(200);
+    // A real transcode over TLS answers canonical ad.
+    const body = await new Promise<string>((resolve, reject) => {
+      const req = https.request(
+        { host: "127.0.0.1", port, path: `/transcode?url=${encodeURIComponent("https://example.com/r")}`, agent },
+        (res) => {
+          let data = "";
+          res.on("data", (c: Buffer) => (data += c.toString()));
+          res.on("end", () => resolve(data));
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    expect(body).toContain("ad-");
   });
 });

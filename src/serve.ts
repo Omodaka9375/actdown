@@ -13,6 +13,8 @@
  * dependencies: node:http + fetch.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer as createTlsServer } from "node:tls";
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { EdgeError, formatConversion, transcodeUrl, type EdgeFormat, type EdgeOptions } from "./edge.js";
@@ -123,6 +125,54 @@ function tokenMatches(presented: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
+/** A parsed per-identity token set: identity -> accepted tokens (all valid). */
+export interface AuthTokens {
+  /** token (verbatim) -> identity name. */
+  readonly byToken: ReadonlyMap<string, string>;
+}
+
+/**
+ * Parse per-identity tokens from `EDGE_TOKENS`-style text:
+ * `name=token` per line, `#` comments, blank lines skipped. Names are
+ * trimmed and must be non-empty; tokens are used verbatim (no trimming of
+ * inner content, but surrounding whitespace of the whole value is trimmed).
+ * Returns null when the text has no valid entries.
+ */
+export function parseTokenPairs(text: string): AuthTokens | null {
+  const byToken = new Map<string, string>();
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line === "" || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const name = line.slice(0, eq).trim();
+    const token = line.slice(eq + 1).trim();
+    if (name === "" || token === "") continue;
+    byToken.set(token, name);
+  }
+  return byToken.size === 0 ? null : { byToken };
+}
+
+/**
+ * Identity-aware credential check. A single shared token maps to the
+ * identity "default"; a parsed token set maps each token to its identity.
+ * Returns the authenticated identity name, or null.
+ */
+export function authenticate(
+  presented: string | null,
+  sharedToken: string | undefined,
+  tokens: AuthTokens | null,
+): string | null {
+  if (presented === null) return null;
+  if (sharedToken !== undefined && tokenMatches(presented, sharedToken)) return "default";
+  if (tokens !== null) {
+    for (const [token, name] of tokens.byToken) {
+      if (tokenMatches(presented, token)) return name;
+    }
+  }
+  return null;
+}
+
 /**
  * Extract the token a client presented: `Authorization: Bearer <t>` first
  * (the agent surface), then `?token=<t>` (the browser UI, whose iframes
@@ -193,6 +243,27 @@ export interface ServeOptions extends EdgeOptions {
    * non-loopback bind is possible but warned about in main().
    */
   authToken?: string;
+  /**
+   * Per-identity tokens (env EDGE_TOKENS / EDGE_TOKENS_FILE). Each token
+   * maps to a named identity; any one of them authenticates. Valid together
+   * with `authToken` (which authenticates as "default"), so rotation is:
+   * add the new token, clients switch, then remove the old one. Token sets
+   * are recomputed per request from the loader, so editing the file rotates
+   * credentials without a restart.
+   */
+  authTokens?: AuthTokens | (() => AuthTokens | null);
+  /**
+   * Behind a TLS-terminating proxy: rate-limit by X-Forwarded-For's first
+   * hop instead of the socket address. Only enable when the proxy is
+   * trusted; a client can spoof the header otherwise.
+   */
+  trustProxy?: boolean;
+  /**
+   * Native TLS termination (env EDGE_TLS_CERT + EDGE_TLS_KEY). When set the
+   * gateway serves https directly; when unset (default) it stays plain
+   * HTTP and belongs behind a TLS-terminating proxy.
+   */
+  tls?: { key: string; cert: string };
 }
 
 /** Fixed-window per-IP rate limiter (dev-grade; a proxy makes all clients one IP). */
@@ -219,19 +290,33 @@ function rateLimiter(limit: number): (ip: string) => boolean {
 }
 
 export function createEdgeServer(opts: ServeOptions = {}): Server {
+  const handler = edgeRequestHandler(opts);
+  if (opts.tls === undefined) return createServer(handler);
+  // TLS termination on the gateway itself: the same handler over https.
+  // A dedicated TLS proxy in front remains an option; this closes the
+  // plain-HTTP gap for small deployments (pair with trustProxy when a
+  // proxy still fronts this server).
+  const tlsServer = createTlsServer({ key: opts.tls.key, cert: opts.tls.cert });
+  tlsServer.on("request", handler);
+  return tlsServer as unknown as Server;
+}
+
+function edgeRequestHandler(opts: ServeOptions): (req: IncomingMessage, res: ServerResponse) => void {
   const log = opts.onRequest ?? (() => {});
   const maxBody = opts.maxRequestBodyBytes ?? 1024 * 1024;
   const tooManyRequests = rateLimiter(opts.rateLimit ?? 120);
   let inFlight = 0;
   const maxConcurrent = opts.maxConcurrent ?? 8;
   const authToken = opts.authToken;
+  const authTokens = opts.authTokens;
+  const trustProxy = opts.trustProxy === true;
   /** Acquire a concurrency slot for an upstream transcode. */
   const slot = (): boolean => {
     if (inFlight >= maxConcurrent) return false;
     inFlight += 1;
     return true;
   };
-  return createServer((req: IncomingMessage, res: ServerResponse) => {
+  return (req: IncomingMessage, res: ServerResponse) => {
     let u: URL;
     try {
       u = new URL(req.url ?? "/", "http://localhost");
@@ -253,14 +338,23 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
         send(res, 413, JSON.stringify({ code: "E_EDGE_TOO_LARGE", message: `request body exceeds ${maxBody} bytes` }), "application/json; charset=utf-8");
         return;
       }
-      const ip = req.socket.remoteAddress ?? "unknown";
-      // Shared-token gate for untrusted networks. /healthz stays open (it is
-      // a liveness probe and reveals nothing). Checked before the rate
-      // limiter so an attacker cannot poison a shared IP's bucket with
-      // unauthenticated traffic, and so 401s are unstateful and cheap.
-      if (authToken !== undefined && u.pathname !== "/healthz") {
+      // Rate-limit identity: behind a trusted proxy the forwarded client is
+      // the bucket key; otherwise the socket address. Spoofing the header
+      // without a trusted proxy is why this is opt-in.
+      const ip = trustProxy
+        ? (String(req.headers["x-forwarded-for"] ?? "").split(",")[0]?.trim() || req.socket.remoteAddress || "unknown")
+        : (req.socket.remoteAddress ?? "unknown");
+      // Token gate for untrusted networks. /healthz stays open (it is a
+      // liveness probe and reveals nothing). Checked before the rate limiter
+      // so an attacker cannot poison a shared IP's bucket with
+      // unauthenticated traffic, and so 401s are unstateful and cheap. A
+      // function-valued authTokens is re-read per request, so a rotated
+      // tokens file takes effect without a restart.
+      if ((authToken !== undefined || authTokens !== undefined) && u.pathname !== "/healthz") {
         const presented = presentedToken(req, u);
-        if (presented === null || !tokenMatches(presented, authToken)) {
+        const tokens = typeof authTokens === "function" ? authTokens() : authTokens ?? null;
+        const identity = authenticate(presented, authToken, tokens);
+        if (identity === null) {
           send(
             res,
             401,
@@ -344,7 +438,7 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
         }
       }
     })().catch((err: unknown) => sendJsonError(res, err));
-  });
+  };
 }
 
 function isLoopbackHost(host: string): boolean {
@@ -361,9 +455,39 @@ function main(): void {
   const rateLimit = process.env.EDGE_RATE_LIMIT === undefined ? undefined : Number(process.env.EDGE_RATE_LIMIT);
   const rawToken = process.env.EDGE_TOKEN;
   const authToken = rawToken === undefined || rawToken === "" ? undefined : rawToken;
-  if (authToken === undefined && !isLoopbackHost(host)) {
+  // Per-identity tokens: EDGE_TOKENS (inline text) or EDGE_TOKENS_FILE
+  // (path; re-read per request so rotation needs no restart).
+  let authTokens: AuthTokens | (() => AuthTokens | null);
+  const tokensFile = process.env.EDGE_TOKENS_FILE;
+  if (tokensFile !== undefined && tokensFile !== "") {
+    authTokens = () => {
+      try {
+        return parseTokenPairs(readFileSync(tokensFile, "utf8"));
+      } catch (err: unknown) {
+        process.stderr.write(`warning: cannot read EDGE_TOKENS_FILE ${tokensFile}: ${err instanceof Error ? err.message : String(err)}\n`);
+        return null;
+      }
+    };
+  } else {
+    const inline = process.env.EDGE_TOKENS;
+    const parsed = inline === undefined || inline === "" ? null : parseTokenPairs(inline);
+    authTokens = parsed === null ? () => null : parsed;
+  }
+  // Native TLS: both file paths must be present to enable.
+  const tlsCert = process.env.EDGE_TLS_CERT;
+  const tlsKey = process.env.EDGE_TLS_KEY;
+  const tls = tlsCert !== undefined && tlsCert !== "" && tlsKey !== undefined && tlsKey !== ""
+    ? { key: readFileSync(tlsKey, "utf8"), cert: readFileSync(tlsCert, "utf8") }
+    : undefined;
+  if (tls === undefined && !isLoopbackHost(host)) {
     process.stderr.write(
-      `warning: HOST=${host} is not a loopback address and EDGE_TOKEN is not set; ` +
+      `warning: HOST=${host} is not a loopback address and no TLS is configured (EDGE_TLS_CERT/EDGE_TLS_KEY); ` +
+        "the gateway serves plain HTTP - front it with a TLS proxy for real deployments\n",
+    );
+  }
+  if (authToken === undefined && authTokens === null && !isLoopbackHost(host)) {
+    process.stderr.write(
+      `warning: HOST=${host} is not a loopback address and neither EDGE_TOKEN nor EDGE_TOKENS/EDGE_TOKENS_FILE is set; ` +
         "the gateway will accept unauthenticated requests from any reachable client\n",
     );
   }
@@ -374,6 +498,9 @@ function main(): void {
     allowPrivate: process.env.EDGE_ALLOW_PRIVATE === "1",
     rateLimit: Number.isFinite(rateLimit) ? rateLimit : undefined,
     authToken,
+    authTokens,
+    trustProxy: process.env.EDGE_TRUST_PROXY === "1",
+    tls,
     onRequest: (line) => {
       process.stdout.write(`${line}\n`);
     },
@@ -381,7 +508,7 @@ function main(): void {
   server.listen(port, host, () => {
     const addr = server.address();
     const shown = addr !== null && typeof addr === "object" ? `${addr.address}:${addr.port}` : `${host}:${port}`;
-    process.stdout.write(`actdown edge listening on http://${shown} (health: /healthz)\n`);
+    process.stdout.write(`actdown edge listening on ${tls === undefined ? "http" : "https"}://${shown} (health: /healthz)\n`);
   });
 }
 
