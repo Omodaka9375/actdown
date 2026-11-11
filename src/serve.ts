@@ -13,7 +13,7 @@
  * dependencies: node:http + fetch.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { createServer as createTlsServer } from "node:tls";
+import { createServer as createHttpsServer } from "node:https";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -295,10 +295,10 @@ export function createEdgeServer(opts: ServeOptions = {}): Server {
   // TLS termination on the gateway itself: the same handler over https.
   // A dedicated TLS proxy in front remains an option; this closes the
   // plain-HTTP gap for small deployments (pair with trustProxy when a
-  // proxy still fronts this server).
-  const tlsServer = createTlsServer({ key: opts.tls.key, cert: opts.tls.cert });
-  tlsServer.on("request", handler);
-  return tlsServer as unknown as Server;
+  // proxy still fronts this server). https.Server is required here: a
+  // bare tls.Server does not parse HTTP, so its sockets would connect
+  // and then hang without ever emitting "request".
+  return createHttpsServer({ key: opts.tls.key, cert: opts.tls.cert }, handler);
 }
 
 function edgeRequestHandler(opts: ServeOptions): (req: IncomingMessage, res: ServerResponse) => void {

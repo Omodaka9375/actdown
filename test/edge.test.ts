@@ -523,7 +523,6 @@ describe("edge gateway auth (untrusted networks)", () => {
     } catch {
       return; // openssl unavailable: TLS covered in docs/CI
     }
-    if (cert === "") return; // openssl unavailable: TLS covered in docs/CI
     const https = await import("node:https");
     const edge = createEdgeServer({
       tls: { key, cert },
@@ -558,5 +557,5 @@ describe("edge gateway auth (untrusted networks)", () => {
       req.end();
     });
     expect(body).toContain("ad-");
-  });
+  }, 15_000);
 });
