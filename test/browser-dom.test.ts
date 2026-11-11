@@ -1,7 +1,6 @@
-import { spawnSync, spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
@@ -114,6 +113,8 @@ let baseUrl = "";
 let browserBin: string | undefined;
 let browserProc: ChildProcess | undefined;
 let wsUrl = "";
+let browserUnavailable: string | undefined;
+const browserRequired = process.env.ACTDOWN_BROWSER_REQUIRED === "1" || process.env.CI !== "true";
 
 beforeAll(async () => {
   if (CHROME_CANDIDATES.length === 0 || !wsAvailable) return;
@@ -146,36 +147,59 @@ beforeAll(async () => {
   const addr = server.address() as { port: number };
   baseUrl = `http://127.0.0.1:${addr.port}/`;
 
-  // Spawn headless with a CDP port, then read the chosen port from stderr.
+  // A discovered binary is not necessarily runnable (missing shared libraries,
+  // sandbox restrictions, or a managed runner's browser policy). GitHub-hosted
+  // runners do not guarantee browser availability, so record a skip there.
+  // Local runs and ACTDOWN_BROWSER_REQUIRED=1 keep infrastructure failures red.
   const port = 9222 + Math.floor(Math.random() * 500);
-  browserProc = spawn(browserBin, [
-    "--headless=new",
-    `--remote-debugging-port=${port}`,
-    "--user-data-dir=" + join(root, ".browser-test-profile"),
-    "--no-first-run",
-    "--disable-extensions",
-    "--disable-gpu",
-    "--remote-allow-origins=*",
-    "about:blank",
-  ], { stdio: ["ignore", "pipe", "pipe"] });
-  // Wait for the DevTools HTTP endpoint, then create a page target and keep
-  // its PAGE-scoped WS URL: page domains (Page/Runtime/Log) work directly
-  // there, while the browser endpoint only accepts Target.*.
-  const deadline = Date.now() + 15_000;
-  for (;;) {
-    try {
-      const v = await fetch(`http://127.0.0.1:${port}/json/version`);
-      if (v.ok) {
-        const t = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT" });
-        const meta = (await t.json()) as { webSocketDebuggerUrl: string };
-        wsUrl = meta.webSocketDebuggerUrl;
-        break;
+  let browserStderr = "";
+  try {
+    browserProc = spawn(browserBin, [
+      "--headless=new",
+      `--remote-debugging-port=${port}`,
+      "--user-data-dir=" + join(root, ".browser-test-profile"),
+      "--no-first-run",
+      "--disable-extensions",
+      "--disable-gpu",
+      "--remote-allow-origins=*",
+      "about:blank",
+    ], { stdio: ["ignore", "pipe", "pipe"] });
+    browserProc.stderr?.on("data", (chunk: Buffer) => { browserStderr += chunk.toString(); });
+    const exited = new Promise<string>((resolve) => {
+      browserProc!.once("error", (err) => resolve(err.message));
+      browserProc!.once("exit", (code, signal) => resolve(`browser exited (code=${code}, signal=${signal})`));
+    });
+    // Wait for the DevTools HTTP endpoint, then create a page target and keep
+    // its PAGE-scoped WS URL: page domains (Page/Runtime/Log) work directly
+    // there, while the browser endpoint only accepts Target.*.
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      try {
+        const v = await fetch(`http://127.0.0.1:${port}/json/version`);
+        if (v.ok) {
+          const t = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT" });
+          if (!t.ok) throw new Error(`DevTools target creation failed: ${t.status}`);
+          const meta = (await t.json()) as { webSocketDebuggerUrl?: unknown };
+          if (typeof meta.webSocketDebuggerUrl !== "string") throw new Error("DevTools target returned no WebSocket URL");
+          wsUrl = meta.webSocketDebuggerUrl;
+          break;
+        }
+      } catch {
+        // Browser not up yet; an early exit is reported by the deadline error.
       }
-    } catch {
-      // browser not up yet
+      if (browserProc.exitCode !== null || browserProc.signalCode !== null) {
+        throw new Error(await exited);
+      }
+      if (Date.now() > deadline) throw new Error("browser DevTools endpoint did not come up");
+      await new Promise((r) => setTimeout(r, 200));
     }
-    if (Date.now() > deadline) throw new Error("browser DevTools endpoint did not come up");
-    await new Promise((r) => setTimeout(r, 200));
+  } catch (err: unknown) {
+    browserProc?.kill();
+    const detail = err instanceof Error ? err.message : String(err);
+    const stderr = browserStderr.trim();
+    browserUnavailable = `real browser unavailable: ${detail}${stderr === "" ? "" : `\n${stderr}`}`;
+    if (browserRequired) throw new Error(browserUnavailable);
+    console.warn(`Skipping real-browser DOM test on CI. ${browserUnavailable}`);
   }
 }, 30_000);
 
@@ -185,7 +209,8 @@ afterAll(async () => {
 });
 
 describe("dom adapter in a real browser (SPEC 11)", () => {
-  d(CHROME_CANDIDATES.length > 0 && wsAvailable)("runs the fixture end to end over CDP", async () => {
+  d(CHROME_CANDIDATES.length > 0 && wsAvailable)("runs the fixture end to end over CDP", async ({ skip }) => {
+    if (browserUnavailable !== undefined) skip(browserUnavailable);
     expect(browserProc).toBeDefined();
     expect(wsUrl).toMatch(/^ws:\/\/127\.0\.0\.1:\d+\/devtools\/page\//);
     const cdp = new Cdp(wsUrl);
