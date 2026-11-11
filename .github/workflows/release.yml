@@ -53,12 +53,14 @@ jobs:
           version="${RELEASE_TAG#v}"
           awk -v version="${version}" 'index($0, "## [" version "] ") == 1 { capture = 1; next } capture && /^## \[/ { exit } capture { print }' CHANGELOG.md > RELEASE_NOTES.md
           test -s RELEASE_NOTES.md
-      - name: Create prerelease with assets
+      - name: Create release with assets
         uses: softprops/action-gh-release@v3
         with:
           name: actdown ${{ github.ref_name }}
           body_path: RELEASE_NOTES.md
-          prerelease: true
+          # Stable semver tags (v0.1.1) create the latest normal release.
+          # Only a suffix (v0.2.0-alpha.0) marks a GitHub prerelease.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
           files: |
             release/*.tgz

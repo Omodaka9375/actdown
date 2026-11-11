@@ -26,6 +26,7 @@
  */
 import { createInterface } from "node:readline";
 import { realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import type { JSONRPCRequest } from "./jsonrpc.js";
 import {
@@ -390,7 +391,15 @@ const RESOURCES: Record<
 };
 
 // --- JSON-RPC plumbing ------------------------------------------------------
-const SERVER_INFO = { name: "actdown", version: "0.1.0" };
+function packageVersion(): string {
+  const metadata: unknown = createRequire(import.meta.url)("../package.json");
+  if (typeof metadata !== "object" || metadata === null || !("version" in metadata) || typeof metadata.version !== "string") {
+    throw new Error("package.json has no valid version");
+  }
+  return metadata.version;
+}
+
+export const SERVER_INFO = { name: "actdown", version: packageVersion() };
 
 /** A JSON-RPC id must be a string, a finite number, or null; anything else
  * (objects, arrays, huge values) is sanitized to null so the reply itself

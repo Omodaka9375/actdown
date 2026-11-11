@@ -1,6 +1,6 @@
 {
   "name": "actdown",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP reader mode for agents: transcode web pages to canonical actdown documents and JSON ASTs",
   "keywords": [
     "markdown",

@@ -4,6 +4,19 @@ All notable changes to actdown are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-11-11
+
+Patch release of the development preview. The spec remains draft 0.1.
+
+### Fixed
+
+- Reader conversion now starts at the first `<main>` element when present,
+  excluding page headers and surrounding navigation. Empty link and button
+  controls no longer produce semantic blocks. Pages without `<main>` retain
+  full-document conversion.
+- MCP `serverInfo` now reports the installed npm package version instead of
+  a hardcoded release number.
+
 ## [0.1.0] - 2026-11-10
 
 First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
@@ -121,9 +134,9 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
 
 ### Fixed
 
-- Reader conversion now starts at the first `<main>` element when present, excluding page headers and surrounding navigation. Empty link and button controls no longer produce semantic blocks. Pages without `<main>` retain full-document conversion.
 - GFM pipe tables inside prose now render as `<table>` in both
   implementations; previously they fell through to paragraph text and the
   `|---|` delimiter row printed literally.
 
+[0.1.1]: https://github.com/Omodaka9375/actdown/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Omodaka9375/actdown/releases/tag/v0.1.0

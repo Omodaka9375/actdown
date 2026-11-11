@@ -1,5 +1,6 @@
+import { createRequire } from "node:module";
 import { afterEach, describe, expect, it } from "vitest";
-import { TOOLS, setTranscodeOptions } from "../src/mcp.js";
+import { SERVER_INFO, TOOLS, setTranscodeOptions } from "../src/mcp.js";
 import type { EdgeOptions } from "../src/edge.js";
 
 /**
@@ -21,6 +22,12 @@ afterEach(() => {
 });
 
 describe("mcp tools", () => {
+  it("reports the installed package version", () => {
+    const metadata: unknown = createRequire(import.meta.url)("../package.json");
+    expect(SERVER_INFO).toEqual({ name: "actdown", version: expect.any(String) });
+    expect(metadata).toMatchObject({ version: SERVER_INFO.version });
+  });
+
   it("registers the seven tools with schemas", () => {
     expect(Object.keys(TOOLS).sort()).toEqual([
       "actdown_ast",
