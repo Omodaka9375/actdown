@@ -13,4 +13,8 @@ Thumbs.db
 # browser test scratch (headless chrome profiles)
 .browser-test-profile/
 
+# publish prep scratch
+.packtest/
+actdown-*.tgz
+
 .git-commit-msg.tmp

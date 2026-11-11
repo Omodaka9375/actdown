@@ -145,14 +145,13 @@ render/check tools plus the in-session guides:
   "mcpServers": {
     "actdown": {
       "command": "npx",
-      "args": ["-y", "actdown-mcp"]
+      "args": ["-y", "-p", "actdown", "actdown-mcp"]
     }
   }
 }
 ```
 
-(`actdown-mcp` is a thin wrapper package around this package's
-`dist/mcp.js`; run `node dist/mcp.js` directly from a checkout.)
+From a checkout, run `node dist/mcp.js` directly instead.
 
 ### 3. Render and connect host-owned actions
 

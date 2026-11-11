@@ -2,6 +2,16 @@
   "name": "actdown",
   "version": "0.1.0",
   "description": "Actionable Markdown for agents and humans (spec draft 0.1)",
+  "keywords": [
+    "markdown",
+    "agents",
+    "mcp",
+    "model-context-protocol",
+    "document-format",
+    "html-to-markdown",
+    "llm",
+    "ai"
+  ],
   "license": "Apache-2.0",
   "type": "module",
   "packageManager": "pnpm@10.15.0",
@@ -25,9 +35,16 @@
   },
   "homepage": "https://github.com/Omodaka9375/actdown#readme",
   "bin": {
-    "actdown": "dist/cli.js"
+    "actdown": "dist/cli.js",
+    "actdown-mcp": "dist/mcp.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist",
+    "SPEC.md",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
