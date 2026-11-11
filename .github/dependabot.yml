@@ -4,10 +4,21 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # Minor/patch bumps of dev-only tooling ride together; majors stay
+      # separate so a TS 7 or vitest 6 jump never hides in a batch.
+      dev-minor:
+        update-types:
+          - "minor"
+          - "patch"
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
   - package-ecosystem: cargo
     directory: /actdown-rs
     schedule:
