@@ -49,6 +49,48 @@ function mdEscape(s: string): string {
   return s.replace(/([\\`*_\[\]])/g, "\\$1");
 }
 
+/**
+ * Hidden-content policy (anti cloaking / invisible-text injection). An
+ * element the author marked invisible must not reach the agent as visible
+ * prose: text smuggled via `display:none`, `aria-hidden`, or the `hidden`
+ * attribute is a classic prompt-injection carrier (human sees nothing, the
+ * scraper reads it). Dropped elements are counted and reported as ONE
+ * aggregate audit note - never with a text preview, which would leak the
+ * smuggled content back into the agent's context.
+ *
+ * Detected: the `hidden` attribute, `aria-hidden="true"`, `template`
+ * (inert by definition), and inline styles `display:none`,
+ * `visibility:hidden`, `content-visibility:hidden`, `opacity:0`,
+ * `font-size:0`, negative `text-indent`. NOT detected (needs rendered
+ * layout): colors equal to the background, off-screen positioning, site
+ * CSS classes like `sr-only`. A page can still hide text from this check.
+ */
+const STYLE_HIDDEN_RES: readonly RegExp[] = [
+  /display\s*:\s*none(?:\s*!important)?/i,
+  /visibility\s*:\s*hidden(?:\s*!important)?/i,
+  /content-visibility\s*:\s*hidden(?:\s*!important)?/i,
+  /opacity\s*:\s*0(?![.\d])(?:\s*!important)?/i,
+  /font-size\s*:\s*0(?![.\d])(?:\s*!important)?/i,
+  /text-indent\s*:\s*-\d/i,
+];
+
+function isHidden(el: HtmlNode): boolean {
+  if (el.tag === "template") return true;
+  if (Object.hasOwn(el.attrs, "hidden")) return true;
+  if (el.attrs["aria-hidden"] === "true") return true;
+  const style = el.attrs.style;
+  if (style === undefined) return false;
+  return STYLE_HIDDEN_RES.some((re) => re.test(style));
+}
+
+/**
+ * Dropped hidden-element count for the conversion in progress. Safe as
+ * module state because htmlToDoc is fully synchronous: the count is reset
+ * at entry and consumed before returning, so interleaved calls cannot
+ * corrupt it.
+ */
+let hiddenDropped = 0;
+
 /** A URL inside markdown `(...)` must not close the link early. */
 function mdUrl(u: string): string {
   return u.replace(/[()\\]/g, (c) => (c === "\\" ? "\\\\" : `\\${c}`));
@@ -75,6 +117,21 @@ export function inlineMd(node: HtmlNode): string {
   return out;
 }
 
+/** Inline markdown of a subtree with author-hidden elements dropped. */
+function inlineMdVisible(node: HtmlNode): string {
+  let out = "";
+  for (const c of node.children) {
+    if (typeof c === "string") {
+      out += mdEscape(textOf({ tag: "#t", attrs: {}, children: [c] }).replace(/\s+/g, " "));
+    } else if (isHidden(c)) {
+      hiddenDropped += 1;
+    } else {
+      out += inlineSelf(c);
+    }
+  }
+  return out;
+}
+
 /** Markdown for one inline element, including its own wrapper. */
 function inlineSelf(el: HtmlNode): string {
   switch (el.tag) {
@@ -82,10 +139,10 @@ function inlineSelf(el: HtmlNode): string {
       return "\n";
     case "strong":
     case "b":
-      return `**${inlineMd(el).trim()}**`;
+      return `**${inlineMdVisible(el).trim()}**`;
     case "em":
     case "i":
-      return `*${inlineMd(el).trim()}*`;
+      return `*${inlineMdVisible(el).trim()}*`;
     case "code":
     case "kbd":
     case "samp":
@@ -93,7 +150,7 @@ function inlineSelf(el: HtmlNode): string {
       return mdCodeSpan(textOf(el).trim());
     case "a": {
       const href = el.attrs.href;
-      return href === undefined ? inlineMd(el) : `[${inlineMd(el).trim()}](${mdUrl(href)})`;
+      return href === undefined ? inlineMdVisible(el) : `[${inlineMdVisible(el).trim()}](${mdUrl(href)})`;
     }
     case "img":
       // alt is raw markup input: escape it so untrusted HTML cannot inject
@@ -101,7 +158,9 @@ function inlineSelf(el: HtmlNode): string {
       // following blocks on re-parse).
       return `![${mdEscape(el.attrs.alt ?? "")}](${mdUrl(el.attrs.src ?? "")})`;
     default:
-      return inlineMd(el);
+      // Generic inline containers (span, label, ...): recurse visibly so
+      // hidden children are dropped here too.
+      return inlineMdVisible(el);
   }
 }
 
@@ -112,7 +171,7 @@ function liLabel(li: HtmlNode): string {
     .map((c) =>
       typeof c === "string"
         ? mdEscape(textOf({ tag: "#t", attrs: {}, children: [c] }).replace(/\s+/g, " "))
-        : inlineMd(c),
+        : inlineMdVisible(c),
     );
   return parts.join("").replace(/\s+/g, " ").trim();
 }
@@ -130,6 +189,7 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
   const notes: string[] = [];
   const source = opts.source ?? "unknown";
   let inlineBuf: string[] = [];
+  hiddenDropped = 0;
 
   const flush = () => {
     const md = prose.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -164,6 +224,21 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
     }
   };
 
+  /** Inline walk: skip children the author hid (anti cloaking). */
+  const walkVisibleInline = (node: HtmlNode): string => {
+    let out = "";
+    for (const c of node.children) {
+      if (typeof c === "string") {
+        out += mdEscape(textOf({ tag: "#t", attrs: {}, children: [c] }).replace(/\s+/g, " "));
+      } else if (isHidden(c)) {
+        hiddenDropped += 1;
+      } else {
+        out += inlineSelf(c);
+      }
+    }
+    return out;
+  };
+
   const listLines = (list: HtmlNode, depth: number): string[] => {
     const indent = "  ".repeat(depth);
     const marker = list.tag === "ol" ? "1." : "-";
@@ -182,6 +257,13 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
 
   const convert = (el: HtmlNode, listDepth: number): void => {
     const { tag, attrs } = el;
+
+    // Anti cloaking: an author-hidden element is dropped entirely (and
+    // counted); its text must not leak into prose via any path.
+    if (isHidden(el)) {
+      hiddenDropped += 1;
+      return;
+    }
 
     if (tag === "br") {
       pushInline("\n");
@@ -202,7 +284,7 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
       pushProse("---");
     } else if (/^h[1-6]$/.test(tag)) {
       const level = Number(tag[1]);
-      pushProse("#".repeat(level) + " " + inlineMd(el).replace(/\s+/g, " ").trim());
+      pushProse("#".repeat(level) + " " + inlineMdVisible(el).replace(/\s+/g, " ").trim());
     } else if (tag === "ul" || tag === "ol") {
       pushProse(listLines(el, listDepth).join("\n"));
     } else if (tag === "pre") {
@@ -217,7 +299,7 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
       pushProse(fenceMark + (cls?.[1] ?? "") + "\n" + body + "\n" + fenceMark);
     } else if (tag === "blockquote") {
       pushProse(
-        inlineMd(el)
+        inlineMdVisible(el)
           .split("\n")
           .map((l) => l.trim())
           .filter((l) => l !== "")
@@ -235,9 +317,9 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
       pushBlock(b);
     } else if (tag === "a") {
       if (attrs.href === undefined) {
-        pushInline(inlineMd(el)); // named anchor: collapse to text
+        pushInline(inlineMdVisible(el)); // named anchor: collapse to text
       } else {
-        const b = block("link", { href: attrs.href }, {}, inlineMd(el).replace(/\s+/g, " ").trim(), "link");
+        const b = block("link", { href: attrs.href }, {}, inlineMdVisible(el).replace(/\s+/g, " ").trim(), "link");
         b.id = slug(attrs.id ?? "");
         pushBlock(b);
       }
@@ -259,6 +341,9 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
   walk(root, 0);
   flushInline();
   flush();
+  if (hiddenDropped > 0) {
+    notes.push(`hidden content dropped: ${hiddenDropped} element(s) the author marked invisible (anti-cloaking)`);
+  }
   return { doc: { ad: "0.1", nodes }, notes };
 }
 
@@ -275,7 +360,7 @@ function tableBlock(el: HtmlNode): BlockNode {
           .map((tr) =>
             tr.children
               .filter((c): c is HtmlNode => typeof c !== "string" && (c.tag === "td" || c.tag === "th"))
-              .map((cell) => cellText(inlineMd(cell).replace(/\s+/g, " ").trim())),
+              .map((cell) => cellText(inlineMdVisible(cell).replace(/\s+/g, " ").trim())),
           );
   const section = (name: string) =>
     el.children.find((c): c is HtmlNode => typeof c !== "string" && c.tag === name);
@@ -311,7 +396,7 @@ function buttonBlock(el: HtmlNode): BlockNode {
     attrs["x-legacy-handler"] = handler;
   }
   if (el.attrs.disabled !== undefined) attrs["x-legacy-disabled"] = "";
-  return block("action", {}, attrs, inlineMd(el).replace(/\s+/g, " ").trim(), "button");
+  return block("action", {}, attrs, inlineMdVisible(el).replace(/\s+/g, " ").trim(), "button");
 }
 
 function formBlock(form: HtmlNode, source: string, notes: string[]): BlockNode {

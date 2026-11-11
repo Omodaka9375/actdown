@@ -10,6 +10,16 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
 
 ### Added
 
+- Anti-cloaking in html2ad: author-hidden elements (`hidden` attribute,
+  `aria-hidden="true"`, `template`, and inline styles `display:none`,
+  `visibility:hidden`, `content-visibility:hidden`, `opacity:0`,
+  `font-size:0`, negative `text-indent`) are dropped on every conversion
+  path (blocks, headings, links, buttons, table cells, list labels, inline
+  wrappers) and reported as one aggregate audit note with no content
+  preview. Invisible text is a classic prompt-injection carrier for agents
+  reading converted pages; it can no longer survive downconversion as
+  prose. Markup-based detection: text hidden only by rendered-page CSS
+  (site classes, matching colors) is not caught.
 - Gateway auth hardening: per-identity tokens (`EDGE_TOKENS` inline text or
   `EDGE_TOKENS_FILE`, `name=token` per line; the file is re-read per request
   so rotation needs no restart, and overlap during rotation works), native

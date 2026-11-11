@@ -277,7 +277,13 @@ ungranted capability through the runtime raises `CapMissingError`.
 The development gateway fetches a URL, downconverts its HTML to canonical
 ad for agents, and retains the original text. It converts existing pages;
 it does not make them interactive, and scripts in the source page are not
-executed.
+executed. Author-hidden content (`display:none`, `visibility:hidden`,
+`opacity:0`, `aria-hidden`, the `hidden` attribute, `template`) is dropped
+during conversion and reported as an aggregate audit note with no content
+preview, so invisible-text smuggling (cloaking) cannot reach an agent as
+prose. Detection is markup-based; text hidden by rendered-page CSS alone
+(for example site classes like `sr-only`, or colors matching the
+background) is not caught.
 
 Run it explicitly when needed:
 
