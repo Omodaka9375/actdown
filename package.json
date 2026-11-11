@@ -41,7 +41,7 @@
   "bugs": {
     "url": "https://github.com/Omodaka9375/actdown/issues"
   },
-  "homepage": "https://github.com/Omodaka9375/actdown#readme",
+  "homepage": "https://actdown.dev/",
   "bin": {
     "actdown": "dist/cli.js",
     "actdown-mcp": "dist/mcp.js",

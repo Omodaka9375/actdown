@@ -6,11 +6,11 @@
 
 actdown fetches HTML and converts it to canonical `.ad` text or a JSON AST. It removes scripts and presentation markup, keeps useful semantic structure, and reports conversion notes. The package also includes a document parser, renderer, CLI, and a development HTTP gateway.
 
-**Status:** spec draft 0.1 and development preview. Requires Node.js 20 or newer. Zero runtime dependencies.
+**Status:** spec draft 0.1 and development preview. Requires Node.js 20 or newer. Zero runtime dependencies. Visit [actdown.dev](https://actdown.dev) for the project site and browser playground.
 
 ## MCP quickstart
 
-Add this to your MCP client configuration:
+After `actdown@0.1.0` is published to npm, add this to your MCP client configuration:
 
 ```json
 {
@@ -38,22 +38,22 @@ The result is JSON text with the fetched source, converted document, format, and
 {
   "source": "https://example.com/",
   "format": "canonical",
-  "canonical": "# Example Domain\n\nThis domain is for use in documentation examples.\n\n[More information...](https://www.iana.org/domains/example)",
+  "canonical": "This domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes.\n",
   "notes": []
 }
 ```
 
 `format: "ast"` returns a JSON AST (`ad: "0.1"`). `format: "html"` returns rendered HTML. Already have HTML? Use `actdown_html2ad` with `{ html, source? }`; it converts text directly without fetching a URL.
 
-For a checkout, use `pnpm build` and run `node dist/mcp.js`. The server exposes seven tools and two in-session authoring guides (`actdown://guide/authoring` and `actdown://guide/grammar`).
+The package is not yet published. For a checkout, run `pnpm build` and configure your MCP client to run `node dist/mcp.js` instead. The server exposes seven tools and two in-session authoring guides (`actdown://guide/authoring` and `actdown://guide/grammar`).
 
 ## Conversion and security boundaries
 
 - **Conversion is lossy.** Headings, paragraphs, lists, tables, links, images, forms, and buttons become prose or semantic blocks. Script and style elements are removed. Inline event handlers are never executed, but their source may remain as an inert `x-legacy-handler` audit note.
 - **Converted text is untrusted data, including visible text.** The converter does not detect prompt-injection instructions or decide whether content is trustworthy. Agents must treat it as page content, not instructions from the host or user.
 - Recognized hidden markup (`hidden`, `aria-hidden`, `template`, and several inline CSS hiding declarations) is dropped and counted in an aggregate note, without a text preview. External CSS, site-specific classes, matching colors, off-screen positioning, and other layout-only hiding are not detected.
-- Private, loopback, link-local, special-use, and IPv4-mapped private targets are refused by default. DNS answers and every redirect are checked. The default fetcher pins the connection to a validated address while retaining the original HTTP Host and TLS SNI. A custom fetcher owns its own connection policy.
-- Defaults: **10-second fetch timeout**, **5 MiB response-body cap**, and **five redirects**. Non-HTML content types are refused. `EDGE_ALLOW_PRIVATE=1` relaxes private-target checks for controlled fixtures only, never for an exposed service.
+- Private, loopback, link-local, selected special-use, and IPv4-mapped private targets are refused by default. DNS answers and every redirect are checked. The default fetcher pins the connection to a validated address while retaining the original HTTP Host and TLS SNI. A custom fetcher owns its own connection policy.
+- Defaults: **10-second fetch timeout**, **5 MiB response-body cap**, and **five redirects**. HTML and other `text/*` content types are accepted; responses without a content-type header are parsed as HTML. Other content types are refused. `EDGE_ALLOW_PRIVATE=1` relaxes private-target checks for controlled fixtures only, never for an exposed service.
 - Tool failures return MCP error results with `isError: true` and JSON `{ error: { code, message } }`.
 
 ## MCP tools
@@ -68,7 +68,7 @@ For a checkout, use `pnpm build` and run `node dist/mcp.js`. The server exposes 
 | `actdown_ast` | `doc` | JSON AST (`ad: "0.1"`) |
 | `actdown_check` | `doc` | JSON text `{ diagnostics: [] }`, including review lints |
 
-The embedded `actdown_ast` and authoring references are also available as MCP resources.
+The authoring and grammar references are also available as MCP resources at `actdown://guide/authoring` and `actdown://guide/grammar`.
 
 ## Development HTTP gateway
 
@@ -119,7 +119,7 @@ console.log(html2ad("<h1>Hello</h1><p>World</p>"));
 actdown check document.ad          # diagnostics; --strict also fails on warnings
 actdown fmt document.ad            # canonical text
 actdown ast document.ad            # JSON AST
-actdown render document.ad         # reactive HTML
+actdown render document.ad         # static HTML; add --reactive to apply state
 actdown html2ad page.html          # convert an existing file
 ```
 

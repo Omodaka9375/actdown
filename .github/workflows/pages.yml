@@ -1,11 +1,13 @@
-# Deploys actdown-rs/playground.html (fresh WASM embedded at build time) to
-# GitHub Pages. Requires Source: "GitHub Actions" in Settings -> Pages.
+# Deploy the project site and its fresh WASM playground to GitHub Pages.
+# Requires Source: "GitHub Actions" in Settings -> Pages.
+# Set the Pages custom domain to actdown.dev; it supplies the CNAME record.
 name: Pages
 
 on:
   push:
     branches: [main]
     paths:
+      - "docs/**"
       - "actdown-rs/src/**"
       - "actdown-rs/playground-template.html"
       - "actdown-rs/Cargo.toml"
@@ -43,8 +45,10 @@ jobs:
       - run: node scripts/build-playground.mjs
       - name: Assemble site
         run: |
-          mkdir -p site
-          cp actdown-rs/playground.html site/index.html
+          mkdir -p site/playground
+          cp docs/index.html site/index.html
+          cp actdown-rs/playground.html site/playground/index.html
+          touch site/.nojekyll
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site
