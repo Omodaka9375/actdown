@@ -75,6 +75,9 @@ Count: {n}.`;
 const rendered = await call("tools/call", { name: "actdown_render", arguments: { doc } });
 expect("render fills bindings", rendered.result?.content?.[0]?.text?.includes(">3<") === true, rendered.result?.content?.[0]?.text?.slice(0, 200));
 
+const staticHtml = await call("tools/call", { name: "actdown_html", arguments: { doc } });
+expect("static HTML returns markup", (staticHtml.result?.content?.[0]?.text ?? "").includes("<h1>Hi</h1>"), staticHtml.result?.content?.[0]?.text?.slice(0, 120));
+
 const canonical = await call("tools/call", { name: "actdown_canonical", arguments: { doc } });
 expect("canonical assigns an id", /id: h[0-9a-f]{10}/.test(canonical.result?.content?.[0]?.text ?? ""), canonical.result?.content?.[0]?.text);
 
@@ -84,12 +87,9 @@ expect("ast is the JSON contract", ast.result?.content?.[0]?.text?.includes('"ad
 const bad = await call("tools/call", { name: "actdown_check", arguments: { doc: "```ad-state\nn: [unclosed\n```" } });
 expect("check reports diagnostics", (bad.result?.content?.[0]?.text ?? "").includes("diagnostics"), bad.result?.content?.[0]?.text);
 
-// actdown_transcode: fetch a loopback fixture page. allowPrivate is not
-// available in the stdio server by design, so the tool runs the same guard
-// stack as the gateway; a private target must be refused, a public-looking
-// name is resolved... here we point at 127.0.0.1 and EXPECT the SSRF guard
-// to refuse it, then exercise the happy path via the file-less trick: none.
-// The guard refusal IS the happy path for a stdio server on a laptop.
+// actdown_transcode uses the same guard stack as the gateway. A stdio
+// server on a laptop must refuse a loopback target rather than silently
+// relaxing its SSRF policy; the happy path is covered in test/mcp.test.ts.
 const priv = await call("tools/call", { name: "actdown_transcode", arguments: { url: "http://127.0.0.1:9/x" } });
 expect(
   "transcode refuses private targets",
@@ -102,6 +102,14 @@ expect("transcode rejects bad urls", (badUrl.result?.content?.[0]?.text ?? "").i
 
 const unknown = await call("tools/call", { name: "nope", arguments: {} });
 expect("unknown tool errors", unknown.error?.code === -32602, JSON.stringify(unknown));
+
+// Notifications execute without responses. Ask the next request to prove
+// no stale response is left on the wire for the notification id.
+server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "tools/list", params: {} }) + "\n");
+const afterNotice = await call("initialize", {});
+expect("notifications receive no reply", afterNotice.id !== undefined, JSON.stringify(afterNotice));
+const invalidNotice = await call("tools/list", { bad: true });
+expect("next request after notification is valid", invalidNotice.result?.tools?.length === 7, JSON.stringify(invalidNotice));
 
 server.stdin.end();
 await new Promise((r) => server.on("close", r));

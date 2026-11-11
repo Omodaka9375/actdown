@@ -30,4 +30,5 @@ export {
 export { html2ad, htmlToDoc, type Html2AdOptions, type Conversion } from "./html2ad.js";
 export { inlineIncludes, type InlineOptions } from "./include.js";
 export { parseHtml, textOf, type HtmlNode } from "./htmlparse.js";
+export { createEdgeServer, type ServeOptions } from "./serve.js";
 export * from "./types.js";

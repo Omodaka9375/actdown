@@ -40,9 +40,8 @@ export interface EdgeOptions {
    * are refused. The literal check runs first; every hostname (initial and
    * each redirect hop) is then resolved via DNS and every resolved address
    * must be public. Loopback deployments and tests set this true.
-   * Residual TOCTOU: the fetch itself re-resolves at connect time, so a
-   * full DNS-rebinding defense still needs restricted network egress
-   * (README, status) or an allowPrivate deployment on a trusted network.
+   * The default fetcher pins the connection to a validated address;
+   * an injected fetcher owns its own connection and pinning behavior.
    */
   allowPrivate?: boolean;
   /** Upstream timeout, default 10s. */
@@ -74,11 +73,17 @@ const DEFAULTS = {
  * private is refused there.
  */
 function isPrivateV4(a: number, b: number): boolean {
+  // Special-use/non-public ranges that must never be reached over SSRF.
   if (a === 0 || a === 10 || a === 127) return true;
   if (a === 192 && b === 168) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 169 && b === 254) return true;
   if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64/10
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking 198.18/15
+  if (a >= 224) return true; // multicast/reserved/broadcast 224/4 and 240/4
+  if (a === 192 && b === 0) return true; // IETF special-use 192.0/24
+  if (a === 198 && b === 51) return true; // TEST-NET-2
+  if (a === 203 && b === 0) return true; // TEST-NET-3
   return false;
 }
 
@@ -160,7 +165,7 @@ async function readCapped(
     if (value === undefined) continue;
     total += value.byteLength;
     if (total > maxBytes) {
-      void reader.cancel();
+      await reader.cancel().catch(() => undefined);
       throw new EdgeError("E_EDGE_SIZE", `upstream body exceeds ${maxBytes} bytes`, 413);
     }
     chunks.push(value);
@@ -209,46 +214,46 @@ async function resolveChecked(
 }
 
 /**
- * Default fetcher: a pinned-connection request. DNS is resolved by the same
- * validating path as the pre-flight check, but the connection itself dials
- * the validated address, so a DNS rebinding attack between check and connect
- * cannot reach a private service. Host and TLS SNI stay the original
- * hostname (certificate validation is unaffected); the redirect chain is
+ * Default fetcher: a pinned-connection request. The caller's resolver both
+ * validates and selects the address, so a rebinding change between check
+ * and connect cannot choose a different address. Host and TLS SNI stay
+ * the original hostname (certificate validation is unaffected); the
+ * redirect chain is
  * re-validated by transcodeUrl per hop because this fetcher never follows
  * redirects (matching transcodeUrl's redirect: "manual" contract).
  */
 function pinnedFetch(
   resolver: (hostname: string) => Promise<{ address: string; family: number }[]>,
-  validate: boolean,
 ): typeof fetch {
   return async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
     const u = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
     const mod = u.protocol === "https:" ? httpsRequest : httpRequest;
-    const records = await (validate
-      ? resolver(u.hostname)
-      : lookup(u.hostname, { all: true, verbatim: true }));
-    if (validate) {
-      for (const r of records) {
-        if (isPrivateHost(r.address)) {
-          throw new EdgeError("E_EDGE_PRIVATE", `hostname ${u.hostname} resolves to private address ${r.address}`, 403);
-        }
-      }
-    }
+    // URL.hostname includes IPv6 brackets; resolvers want the bare literal.
+    const hostname = u.hostname.replace(/^\[|\]$/g, "");
+    // The caller has already applied its private-address policy. Reuse the
+    // same resolver for connection selection, so address validation and the
+    // actual socket cannot diverge (including allowPrivate fixtures).
+    const records = await resolver(hostname);
+    if (records.length === 0) throw new EdgeError("E_EDGE_FETCH", `DNS returned no addresses for ${hostname}`, 502);
     const record = records[0]!;
     const headers = { ...(init?.headers as Record<string, string> | undefined) };
     return await new Promise<Response>((resolve, reject) => {
       const req = mod(
-        u,
         {
           method: init?.method ?? "GET",
-          headers,
-          // Dial the validated address; servername keeps SNI = hostname.
-          host: record.address,
-          servername: u.protocol === "https:" ? u.hostname : undefined,
-          setHost: true,
-          lookup: (_host: string, _opts: unknown, cb: (err: NodeJS.ErrnoException | null, addr: string, family: number) => void) => {
+          headers: { ...headers, host: u.host },
+          // The original hostname drives HTTP Host, virtual hosting, and
+          // TLS SNI; the custom lookup pins only the socket's address.
+          host: hostname,
+          port: u.port === "" ? undefined : Number(u.port),
+          path: `${u.pathname}${u.search}`,
+          servername: u.protocol === "https:" && !/^\d+(?:\.\d+){3}$|^\[/.test(hostname) ? hostname : undefined,
+          setHost: false,
+          lookup: (_host: string, _opts: unknown, cb: (err: NodeJS.ErrnoException | null, address: string | { address: string; family: number }[], family?: number) => void) => {
             // The address is already pinned; hand it straight through.
-            cb(null, record.address, record.family);
+            const options = _opts as { all?: boolean };
+            if (options.all) cb(null, [record]);
+            else cb(null, record.address, record.family);
           },
         },
         (res) => {
@@ -306,7 +311,7 @@ export async function transcodeUrl(url: string, opts: EdgeOptions = {}): Promise
   // The default fetcher pins the connection to a validated address, closing
   // the resolve-then-connect rebinding window. An injected fetcher (tests)
   // keeps its own semantics.
-  const fetcher = opts.fetcher ?? pinnedFetch(resolver, !opts.allowPrivate);
+  const fetcher = opts.fetcher ?? pinnedFetch(resolver);
   const dnsCheck = (host: string): Promise<void> =>
     opts.allowPrivate ? Promise.resolve() : resolveChecked(host, resolver);
 
@@ -322,7 +327,7 @@ export async function transcodeUrl(url: string, opts: EdgeOptions = {}): Promise
   if (!opts.allowPrivate && isPrivateHost(u.hostname)) {
     throw new EdgeError("E_EDGE_PRIVATE", `refusing private host: ${u.hostname}`, 403);
   }
-  await dnsCheck(u.hostname);
+    await dnsCheck(u.hostname.replace(/^\[|\]$/g, ""));
 
   // Follow redirects manually: each hop must pass the SSRF guard before it
   // is fetched. `redirect: "follow"` only re-checks the final URL, so a
@@ -366,7 +371,7 @@ export async function transcodeUrl(url: string, opts: EdgeOptions = {}): Promise
     if (!opts.allowPrivate && isPrivateHost(next.hostname)) {
       throw new EdgeError("E_EDGE_PRIVATE", `redirect refused private host: ${next.hostname}`, 403);
     }
-    await dnsCheck(next.hostname);
+    await dnsCheck(next.hostname.replace(/^\[|\]$/g, ""));
     current = next.toString();
   }
 
@@ -378,7 +383,16 @@ export async function transcodeUrl(url: string, opts: EdgeOptions = {}): Promise
     throw new EdgeError("E_EDGE_FETCH", `unsupported content type: ${contentType ?? "(none)"}`, 415);
   }
 
-  const bytes = await readCapped(resp.body, cfg.maxBytes);
+  let bytes: Uint8Array;
+  try {
+    bytes = await readCapped(resp.body, cfg.maxBytes);
+  } catch (err: unknown) {
+    if (err instanceof EdgeError) throw err;
+    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      throw new EdgeError("E_EDGE_TIMEOUT", `upstream body timed out after ${cfg.fetchTimeoutMs}ms`, 504);
+    }
+    throw new EdgeError("E_EDGE_FETCH", `upstream body failed: ${err instanceof Error ? err.message : String(err)}`, 502);
+  }
   const html = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
   const source = resp.url === "" ? u.toString() : resp.url;
   const { doc, notes } = htmlToDoc(html, { source });

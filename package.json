@@ -1,7 +1,7 @@
 {
   "name": "actdown",
   "version": "0.1.0",
-  "description": "Actionable Markdown for agents and humans (spec draft 0.1)",
+  "description": "MCP reader mode for agents: transcode web pages to canonical actdown documents and JSON ASTs",
   "keywords": [
     "markdown",
     "agents",
@@ -21,6 +21,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "default": "./dist/mcp.js"
+    },
+    "./serve": {
+      "types": "./dist/serve.d.ts",
+      "default": "./dist/serve.js"
     }
   },
   "engines": {
@@ -36,7 +44,8 @@
   "homepage": "https://github.com/Omodaka9375/actdown#readme",
   "bin": {
     "actdown": "dist/cli.js",
-    "actdown-mcp": "dist/mcp.js"
+    "actdown-mcp": "dist/mcp.js",
+    "actdown-edge": "dist/serve.js"
   },
   "files": [
     "dist",
@@ -49,6 +58,9 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "verify": "node scripts/verify.mjs",
+    "test:mcp": "node scripts/mcp-smoke.mjs",
+    "test:entrypoints": "node scripts/check-entrypoints.mjs",
+    "prepack": "pnpm build",
     "verify:rs": "cargo test --manifest-path actdown-rs/Cargo.toml",
     "edge": "node dist/serve.js",
     "demo": "node examples/mcp-approval/demo.mjs",

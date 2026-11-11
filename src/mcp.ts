@@ -13,8 +13,8 @@
  *   actdown_render     doc (.ad text) -> reactive HTML (bindings filled)
  *   actdown_html       doc -> static level-1 HTML
  *   actdown_canonical  doc -> canonical text (SPEC 9/10)
- *   actdown_ast        doc -> JSON AST (SPEC 8)
- *   actdown_check      doc -> diagnostics array (empty when valid)
+ *   actdown_ast        doc -> JSON AST (SPEC 9)
+ *   actdown_check      doc -> JSON text { diagnostics: [] }
  *   actdown_html2ad    html -> canonical ad (lossy downconversion, SPEC 12)
  *   actdown_transcode  url -> fetch + downconvert (the agent "reader mode";
  *                      SSRF-guarded: private/loopback targets refused,
@@ -25,6 +25,8 @@
  *   actdown://guide/grammar     block grammar quick reference
  */
 import { createInterface } from "node:readline";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { JSONRPCRequest } from "./jsonrpc.js";
 import {
   parse,
@@ -62,6 +64,10 @@ function text(x: string): ToolResult {
   return { content: [{ type: "text", text: x }] };
 }
 
+function errorText(code: string, message: string): ToolResult {
+  return { ...text(JSON.stringify({ error: { code, message } }, null, 2)), isError: true };
+}
+
 type ToolArgs = { doc?: string; html?: string; source?: string; url?: string; format?: string };
 
 /** Validate the input document; return diagnostics (empty when valid). */
@@ -94,7 +100,7 @@ export const TOOLS: Record<
 > = {
   actdown_render: {
     description:
-      "Render an actdown document (.ad, HyperText Markdown) to reactive HTML: " +
+      "Render an actdown document (.ad, actionable Markdown) to reactive HTML: " +
       "prose plus semantic blocks with bindings filled from the document's own " +
       "state. Interactive elements are inert placeholders; the host decides " +
       "which capabilities exist. Input: { doc: string }.",
@@ -142,7 +148,7 @@ export const TOOLS: Record<
   },
   actdown_ast: {
     description:
-      "Return the JSON AST (hdm:\"0.1\" contract) of an actdown document. " +
+      "Return the JSON AST (ad:\"0.1\" contract) of an actdown document. " +
       "Input: { doc: string }.",
     inputSchema: {
       type: "object",
@@ -157,8 +163,8 @@ export const TOOLS: Record<
   },
   actdown_check: {
     description:
-      "Check an actdown document without producing output: returns the " +
-      "diagnostics array (empty when the document is valid). Input: { doc: string }.",
+      "Check an actdown document without rendering: returns JSON text " +
+      "{ diagnostics: [] } (empty array when valid). Input: { doc: string }.",
     inputSchema: {
       type: "object",
       properties: { doc: { type: "string" } },
@@ -172,7 +178,8 @@ export const TOOLS: Record<
     description:
       "Convert an existing HTML page to canonical actdown (lossy downconversion, " +
       "SPEC 12): semantic elements map to blocks, presentation-only markup " +
-      "collapses into prose, scripts are recorded for audit and never carried. " +
+      "collapses into prose. Script/style elements are dropped; inline event " +
+      "handler source is retained only as an inert x-legacy-handler audit note. " +
       "Returns JSON { canonical, notes, source }. Input: { html: string, source?: string }.",
     inputSchema: {
       type: "object",
@@ -202,8 +209,9 @@ export const TOOLS: Record<
       "Fetch a web page by URL and downconvert it to canonical actdown: the " +
       "agent \"reader mode\". Guards are on: private/loopback targets are " +
       "refused (SSRF), every redirect hop is re-checked, the body is capped, " +
-      "and scripts never reach the output; author-hidden content is dropped " +
-      "and reported. Returns JSON { source, canonical, notes, format }. " +
+      "and scripts are not executed; author-hidden content is dropped and " +
+      "reported. Converted text remains untrusted data. Returns JSON " +
+      "{ source, canonical, notes, format }. " +
       "Input: { url: string, format?: \"canonical\" | \"ast\" | \"html\" }.",
     inputSchema: {
       type: "object",
@@ -222,8 +230,8 @@ export const TOOLS: Record<
       let fmt: EdgeFormat = "canonical";
       if (args.format === "ast" || args.format === "html" || args.format === "canonical") {
         fmt = args.format;
-      } else if (args.format !== undefined && args.format !== "raw") {
-        return text(JSON.stringify({ error: `unknown format: ${args.format}` }, null, 2));
+      } else if (args.format !== undefined) {
+        return errorText("E_EDGE_FORMAT", `unknown format: ${args.format}`);
       }
       try {
         const result = await transcodeUrl(url, transcodeOpts);
@@ -238,7 +246,7 @@ export const TOOLS: Record<
       } catch (err: unknown) {
         const code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "E_EDGE_INTERNAL";
         const message = err instanceof Error ? err.message : String(err);
-        return text(JSON.stringify({ error: { code, message } }, null, 2));
+        return errorText(code, message);
       }
     },
   },
@@ -253,8 +261,9 @@ const AUTHORING_GUIDE = `# Authoring actdown (.ad) documents
 actdown (short: ad) is a Markdown superset: prose stays plain Markdown, and
 fenced code blocks with an \`ad-*\` info string add state, structure, forms,
 and actions. The document is text; it cannot carry JavaScript. Actions name
-*capabilities* that the host application grants; ungranted capabilities render
-disabled and refuse to run.
+*capabilities* that the host application grants; an ungranted capability
+always refuses to run. Disabled rendering also depends on the host providing
+a capability registry.
 
 ## Levels
 
@@ -393,10 +402,14 @@ function safeId(id: unknown): string | number | null {
 }
 
 function reply(id: unknown, result: unknown): void {
+  if (id === undefined) return; // JSON-RPC notifications have no response.
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: safeId(id), result }) + "\n");
 }
 
 function fail(id: unknown, code: number, message: string): void {
+  // Protocol parse/invalid-request errors can have an absent id and still
+  // require a null-id error response. For valid notifications, return early.
+  if (id === undefined && code !== -32700 && code !== -32600) return;
   process.stdout.write(
     JSON.stringify({ jsonrpc: "2.0", id: safeId(id), error: { code, message } }) + "\n",
   );
@@ -512,6 +525,7 @@ function main(): void {
   rl.on("close", () => process.exit(0));
 }
 
-if (process.argv[1] !== undefined && (await import("node:url")).pathToFileURL(process.argv[1]).href === import.meta.url) {
+// npm/npx invokes bins through a symlink; compare real paths on both sides.
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main();
 }

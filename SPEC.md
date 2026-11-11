@@ -353,10 +353,11 @@ body text
 
 `html2ad` converts legacy HTML into canonical ad. Contract:
 
-- DOW-1: Lossy in presentation, lossless in meaning. Presentational-only
-  nodes (span wrappers, inline style) collapse into prose; every semantic
-  element (headings, lists, tables, forms, buttons, links, images) maps to
-  a node or block with `role`.
+- DOW-1: Lossy in presentation and semantic meaning. Presentational-only
+  nodes (span wrappers, inline style) collapse into prose; supported
+  semantic elements (headings, lists, tables, forms, buttons, links,
+  images) map to a node or block with `role`. Unknown or unmapped content
+  is not preserved losslessly.
 - DOW-2: `<script>` is dropped; `<style>` is dropped; event attributes
   (`onclick=` etc.) are dropped and, if non-trivial, recorded as
   `x-legacy-handler` on the node for audit.

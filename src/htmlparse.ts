@@ -42,7 +42,9 @@ function parseAttrs(raw: string): Record<string, string> {
     const value = m[3] ?? m[4] ?? (m[2] === undefined || m[2] === "" ? "" : m[2]!.replace(/^["']|["']$/g, ""));
     // Own-property check: an attr named "constructor" must not be dropped
     // by an inherited-key false positive.
-    if (!Object.hasOwn(attrs, name)) attrs[name] = value;
+    // Decode attributes before policy checks: encoded style/aria-hidden
+    // must not bypass anti-cloaking, and &amp; belongs in ordinary URLs.
+    if (!Object.hasOwn(attrs, name)) attrs[name] = decodeEntities(value);
   }
   return attrs;
 }

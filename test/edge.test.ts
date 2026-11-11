@@ -3,6 +3,10 @@ import { EdgeError, formatConversion, isPrivateHost, transcodeUrl, type EdgeOpti
 import { createEdgeServer, parseTokenPairs } from "../src/serve.js";
 import { createServer, request, type RequestListener, type Server } from "node:http";
 import { AddressInfo } from "node:net";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const PAGE = `<!doctype html>
 <html><head><title>Report</title><script>alert(1)</script></head>
@@ -54,6 +58,24 @@ describe("edge core", () => {
     ]) {
       await expect(transcodeUrl(url)).rejects.toThrow(EdgeError);
     }
+  });
+
+  it("refuses benchmarking and other special-use IPv4 targets", async () => {
+    for (const host of ["198.18.0.1", "198.19.255.255", "192.0.0.1", "198.51.100.1", "203.0.113.1"]) {
+      expect(isPrivateHost(host)).toBe(true);
+      await expect(transcodeUrl(`http://${host}/x`)).rejects.toMatchObject({ code: "E_EDGE_PRIVATE" });
+    }
+  });
+
+  it("maps mid-body network failures to E_EDGE_FETCH", async () => {
+    const failing = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error("socket reset"));
+      },
+    }), { status: 200, headers: { "content-type": "text/html" } });
+    await expect(transcodeUrl("https://x.test/body", optsWith(failing))).rejects.toMatchObject({
+      code: "E_EDGE_FETCH",
+    });
   });
 
   it("transcodes a fetched page to canonical ad (agents) and keeps the html (humans)", async () => {
@@ -205,6 +227,28 @@ describe("edge core", () => {
     await expect(transcodeUrl("http://start.test/x", { fetcher: permanent, resolver: publicResolve })).rejects.toMatchObject({
       code: "E_EDGE_PRIVATE",
     });
+  });
+
+  it("default fetch pins the socket but preserves original Host and port", async () => {
+    const host = "example.test";
+    let seenHost = "";
+    const upstream = createServer((req, res) => {
+      seenHost = req.headers.host ?? "";
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(PAGE);
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const upstreamPort = (upstream.address() as AddressInfo).port;
+    const resolver = async (_host: string) => [{ address: "127.0.0.1", family: 4 }];
+    try {
+      // This proves host pinning rather than DNS security: loopback is
+      // allowed for the fixture, but the socket must go through the resolver.
+      const result = await transcodeUrl(`http://${host}:${upstreamPort}/report`, { allowPrivate: true, resolver });
+      expect(result.canonical).toContain("# Weekly report");
+      expect(seenHost).toBe(`${host}:${upstreamPort}`);
+    } finally {
+      upstream.close();
+    }
   });
 
   it("adversarial redirect: private hop mid-chain via literal host is refused before fetching it", async () => {
@@ -359,7 +403,8 @@ describe("edge gateway (live HTTP)", () => {
     expect((await first).status).toBe(200);
   });
 
-  it("refuses private targets when the guard is on", async () => {    const edge = createEdgeServer({});
+  it("refuses private targets when the guard is on", async () => {
+    const edge = createEdgeServer({});
     servers.push(edge);
     const port = await new Promise<number>((resolve) => {
       edge.listen(0, "127.0.0.1", () => resolve((edge.address() as AddressInfo).port));
@@ -453,23 +498,82 @@ describe("edge gateway auth (untrusted networks)", () => {
     expect(lines.some((l) => l.includes("token=REDACTED"))).toBe(true);
   });
 
-  it("per-identity tokens: each token authenticates as its own identity, rotation without restart", async () => {
+  it("per-identity tokens: authenticates, logs identity, and propagates into view", async () => {
+    const logs: string[] = [];
     const base = await start({
       authTokens: parseTokenPairs("# ci token\nbot=circle-ci-token-0123456789\nhuman=alice-token-0123456789"),
       allowPrivate: true,
       fetcher: async () => ok(PAGE),
+      onRequest: (line) => logs.push(line),
     });
 
-    // Each valid token authenticates; the identity is recorded on the log.
-    for (const t of ["circle-ci-token-0123456789", "alice-token-0123456789"]) {
-      const r = await fetch(`${base}/healthz`, { headers: { authorization: `Bearer ${t}` } });
+    for (const [t, identity] of [["circle-ci-token-0123456789", "bot"], ["alice-token-0123456789", "human"]] as const) {
+      const r = await fetch(`${base}/transcode?url=https://example.com/r`, { headers: { authorization: `Bearer ${t}` } });
       expect(r.status).toBe(200);
+      expect(logs.some((line) => line.includes(` ${identity} GET /transcode`))).toBe(true);
     }
+    const page = await fetch(`${base}/view?url=https://example.com/r&token=circle-ci-token-0123456789`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("circle-ci-token-0123456789");
+    const bad = await fetch(`${base}/transcode?url=https://example.com/r`, {
+      headers: { authorization: "<REDACTED:bearer>" },
+    });
+    expect(bad.status).toBe(401);
+  });
+
+  it("does not leak identity or tokens between concurrent views", async () => {
+    const logs: string[] = [];
+    let release: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    let calls = 0;
+    const base = await start({
+      authTokens: parseTokenPairs("bot=bot-token-0123456789abcdef\nhuman=human-token-0123456789abcdef"),
+      allowPrivate: true,
+      fetcher: async () => {
+        calls += 1;
+        if (calls === 1) await blocked;
+        return ok(PAGE);
+      },
+      onRequest: (line) => logs.push(line),
+    });
+    const botPage = fetch(`${base}/view?url=https://example.com/bot&token=bot-token-0123456789abcdef`);
+    while (calls === 0) await new Promise((resolve) => setTimeout(resolve, 5));
+    const humanPage = await fetch(`${base}/view?url=https://example.com/human&token=human-token-0123456789abcdef`);
+    const humanHtml = await humanPage.text();
+    expect(humanHtml).toContain("human-token-0123456789abcdef");
+    expect(humanHtml).not.toContain("bot-token-0123456789abcdef");
+    release?.();
+    const botHtml = await (await botPage).text();
+    expect(botHtml).toContain("bot-token-0123456789abcdef");
+    expect(botHtml).not.toContain("human-token-0123456789abcdef");
+    expect(logs.some((line) => line.includes(" bot GET /view"))).toBe(true);
+    expect(logs.some((line) => line.includes(" human GET /view"))).toBe(true);
+    const anonymous = await fetch(`${base}/healthz`);
+    expect(anonymous.status).toBe(200);
+    expect(logs.some((line) => line.includes(" anonymous GET /healthz"))).toBe(true);
+  });
+
+  it("redacts nested target credentials from request logs", async () => {
+    const logs: string[] = [];
+    const base = await start({
+      allowPrivate: true,
+      fetcher: async () => ok(PAGE),
+      onRequest: (line) => logs.push(line),
+    });
+    const target = "https://user:secret@example.com/?token=<REDACTED:bare>&signature=DO_NOT_LOG";
+    await fetch(`${base}/transcode?url=${encodeURIComponent(target)}`);
+    expect(logs.some((l) => l.includes("DO_NOT_LOG") || l.includes("secret@") || l.includes("nested-secret"))).toBe(false);
+    expect(logs.some((l) => l.includes("url=REDACTED"))).toBe(true);
+  });
+
+  it("rotates per-identity tokens without restart", async () => {
+    const base = await start({ authTokens: parseTokenPairs("bot=old-token-0123456789abcdef"), allowPrivate: true, fetcher: async () => ok(PAGE) });
     const bad = await fetch(`${base}/transcode?url=https://example.com/r`, {
       headers: { authorization: "Bearer wrong-token-0123456789" },
     });
     expect(bad.status).toBe(401);
 
+    void base;
     // Rotation: a function-valued token set is re-read per request, so a
     // server started against a mutable set picks up changes live.
     const mutable = { text: "bot=old-token-0123456789abcdef" };

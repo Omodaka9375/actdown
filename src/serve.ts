@@ -14,8 +14,8 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { readFileSync, realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { EdgeError, formatConversion, transcodeUrl, type EdgeFormat, type EdgeOptions } from "./edge.js";
 
@@ -196,10 +196,11 @@ function presentedToken(req: IncomingMessage, u: URL): string | null {
 function redactedSearch(u: URL): string {
   if (u.search === "") return "";
   const params = new URLSearchParams(u.search);
-  for (const [k, v] of params) {
-    if (k === "token") params.set(k, "REDACTED");
-    else if (v.includes("://")) params.set(k, v.replace(/:\/\/[^@/?#]*@/g, "://REDACTED@"));
-  }
+  // Target URLs may contain nested tokens or signed query parameters.
+  // The request log does not need the target URL at all; /transcode logs
+  // its final source separately with the query removed.
+  params.set("url", "REDACTED");
+  params.set("token", "REDACTED");
   return `?${params.toString()}`;
 }
 
@@ -310,6 +311,7 @@ function edgeRequestHandler(opts: ServeOptions): (req: IncomingMessage, res: Ser
   const authToken = opts.authToken;
   const authTokens = opts.authTokens;
   const trustProxy = opts.trustProxy === true;
+
   /** Acquire a concurrency slot for an upstream transcode. */
   const slot = (): boolean => {
     if (inFlight >= maxConcurrent) return false;
@@ -317,6 +319,8 @@ function edgeRequestHandler(opts: ServeOptions): (req: IncomingMessage, res: Ser
     return true;
   };
   return (req: IncomingMessage, res: ServerResponse) => {
+    // Credentials and identity must never leak between concurrent requests.
+    let authenticated: { identity: string; token: string | null } | null = null;
     let u: URL;
     try {
       u = new URL(req.url ?? "/", "http://localhost");
@@ -328,7 +332,8 @@ function edgeRequestHandler(opts: ServeOptions): (req: IncomingMessage, res: Ser
       return;
     }
     res.on("finish", () => {
-      log(`${new Date().toISOString()} ${req.method} ${u.pathname}${redactedSearch(u)} -> ${res.statusCode}`);
+      const who = authenticated === null ? "anonymous" : authenticated.identity;
+      log(`${new Date().toISOString()} ${who} ${req.method} ${u.pathname}${redactedSearch(u)} -> ${res.statusCode}`);
     });
     void (async () => {
       // Inbound size cap: GET/HEAD should not carry a body; reject any that
@@ -367,6 +372,7 @@ function edgeRequestHandler(opts: ServeOptions): (req: IncomingMessage, res: Ser
           );
           return;
         }
+        authenticated = { identity, token: presented };
       }
       if (tooManyRequests(ip)) {
         send(res, 429, JSON.stringify({ code: "E_EDGE_RATE", message: "rate limit exceeded, slow down" }), "application/json; charset=utf-8");
@@ -383,7 +389,7 @@ function edgeRequestHandler(opts: ServeOptions): (req: IncomingMessage, res: Ser
           return;
         }
         case "/": {
-          send(res, 200, viewPage(null, authToken ?? null), "text/html; charset=utf-8", {}, "trusted");
+          send(res, 200, viewPage(null, authenticated?.token ?? null), "text/html; charset=utf-8", {}, "trusted");
           return;
         }
         case "/view": {
@@ -407,7 +413,7 @@ function edgeRequestHandler(opts: ServeOptions): (req: IncomingMessage, res: Ser
               inFlight -= 1;
             }
           }
-          send(res, 200, viewPage(target, authToken ?? null), "text/html; charset=utf-8", {}, "trusted");
+          send(res, 200, viewPage(target, authenticated?.token ?? null), "text/html; charset=utf-8", {}, "trusted");
           return;
         }
         case "/transcode": {
@@ -457,7 +463,7 @@ function main(): void {
   const authToken = rawToken === undefined || rawToken === "" ? undefined : rawToken;
   // Per-identity tokens: EDGE_TOKENS (inline text) or EDGE_TOKENS_FILE
   // (path; re-read per request so rotation needs no restart).
-  let authTokens: AuthTokens | (() => AuthTokens | null);
+  let authTokens: AuthTokens | (() => AuthTokens | null) | undefined;
   const tokensFile = process.env.EDGE_TOKENS_FILE;
   if (tokensFile !== undefined && tokensFile !== "") {
     authTokens = () => {
@@ -471,7 +477,7 @@ function main(): void {
   } else {
     const inline = process.env.EDGE_TOKENS;
     const parsed = inline === undefined || inline === "" ? null : parseTokenPairs(inline);
-    authTokens = parsed === null ? () => null : parsed;
+    authTokens = parsed ?? undefined;
   }
   // Native TLS: both file paths must be present to enable.
   const tlsCert = process.env.EDGE_TLS_CERT;
@@ -485,7 +491,7 @@ function main(): void {
         "the gateway serves plain HTTP - front it with a TLS proxy for real deployments\n",
     );
   }
-  if (authToken === undefined && authTokens === null && !isLoopbackHost(host)) {
+  if (authToken === undefined && authTokens === undefined && !isLoopbackHost(host)) {
     process.stderr.write(
       `warning: HOST=${host} is not a loopback address and neither EDGE_TOKEN nor EDGE_TOKENS/EDGE_TOKENS_FILE is set; ` +
         "the gateway will accept unauthenticated requests from any reachable client\n",
@@ -512,4 +518,4 @@ function main(): void {
   });
 }
 
-if (process.argv[1] !== undefined && pathToFileURL(process.argv[1]).href === import.meta.url) main();
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) main();

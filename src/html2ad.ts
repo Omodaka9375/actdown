@@ -1,13 +1,13 @@
 /**
  * html2ad: legacy HTML to canonical ad (SPEC 12, DOW-1..4).
  *
- * Lossy in presentation, lossless in meaning: presentational nodes collapse
+ * Lossy in presentation and semantic meaning: presentational nodes collapse
  * into prose, semantic elements become blocks with roles, script/style and
  * event handlers are dropped (handlers recorded as x-legacy-handler for
  * audit), and form actions become x-legacy:<source>#<form-id> capabilities.
  */
 import { canonicalize, print } from "./canonical.js";
-import { isInline, parseHtml, textOf, type HtmlNode } from "./htmlparse.js";
+import { decodeEntities, isInline, parseHtml, textOf, type HtmlNode } from "./htmlparse.js";
 import type { BlockNode, Doc, Node } from "./types.js";
 
 export interface Html2AdOptions {
@@ -65,22 +65,17 @@ function mdEscape(s: string): string {
  * layout): colors equal to the background, off-screen positioning, site
  * CSS classes like `sr-only`. A page can still hide text from this check.
  */
-const STYLE_HIDDEN_RES: readonly RegExp[] = [
-  /display\s*:\s*none(?:\s*!important)?/i,
-  /visibility\s*:\s*hidden(?:\s*!important)?/i,
-  /content-visibility\s*:\s*hidden(?:\s*!important)?/i,
-  /opacity\s*:\s*0(?![.\d])(?:\s*!important)?/i,
-  /font-size\s*:\s*0(?![.\d])(?:\s*!important)?/i,
-  /text-indent\s*:\s*-\d/i,
-];
-
 function isHidden(el: HtmlNode): boolean {
   if (el.tag === "template") return true;
   if (Object.hasOwn(el.attrs, "hidden")) return true;
   if (el.attrs["aria-hidden"] === "true") return true;
   const style = el.attrs.style;
   if (style === undefined) return false;
-  return STYLE_HIDDEN_RES.some((re) => re.test(style));
+  // CSS comments do not change declarations; strip them before matching.
+  const css = style.replace(/\/\*[\s\S]*?\*\//g, "");
+  return /(?:^|;)\s*(?:display|visibility|content-visibility)\s*:\s*(?:none|hidden)(?:\s*!important)?(?:\s*;|$)/i.test(css) ||
+    /(?:^|;)\s*(?:opacity|font-size)\s*:\s*0(?:\.0+)?(?:[a-z%]+)?(?:\s*!important)?(?:\s*;|$)/i.test(css) ||
+    /(?:^|;)\s*text-indent\s*:\s*-\d/i.test(css);
 }
 
 /**
@@ -147,7 +142,7 @@ function inlineSelf(el: HtmlNode): string {
     case "kbd":
     case "samp":
     case "var":
-      return mdCodeSpan(textOf(el).trim());
+      return mdCodeSpan(visibleTextOf(el).trim());
     case "a": {
       const href = el.attrs.href;
       return href === undefined ? inlineMdVisible(el) : `[${inlineMdVisible(el).trim()}](${mdUrl(href)})`;
@@ -167,13 +162,36 @@ function inlineSelf(el: HtmlNode): string {
 /** Inline content of an <li>, excluding nested lists (those repeat below). */
 function liLabel(li: HtmlNode): string {
   const parts = li.children
-    .filter((c) => typeof c === "string" || (c.tag !== "ul" && c.tag !== "ol"))
+    .filter((c) => {
+      if (typeof c === "string") return true;
+      if (c.tag === "ul" || c.tag === "ol") return false;
+      if (isHidden(c)) {
+        hiddenDropped += 1;
+        return false;
+      }
+      return true;
+    })
     .map((c) =>
       typeof c === "string"
         ? mdEscape(textOf({ tag: "#t", attrs: {}, children: [c] }).replace(/\s+/g, " "))
         : inlineMdVisible(c),
     );
   return parts.join("").replace(/\s+/g, " ").trim();
+}
+
+/** Text-only extraction that applies visibility at every descendant. */
+function visibleTextOf(node: HtmlNode): string {
+  let out = "";
+  for (const c of node.children) {
+    if (typeof c === "string") {
+      out += c;
+    } else if (isHidden(c)) {
+      hiddenDropped += 1;
+    } else {
+      out += visibleTextOf(c);
+    }
+  }
+  return decodeEntities(out);
 }
 
 export interface Conversion {
@@ -225,19 +243,7 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
   };
 
   /** Inline walk: skip children the author hid (anti cloaking). */
-  const walkVisibleInline = (node: HtmlNode): string => {
-    let out = "";
-    for (const c of node.children) {
-      if (typeof c === "string") {
-        out += mdEscape(textOf({ tag: "#t", attrs: {}, children: [c] }).replace(/\s+/g, " "));
-      } else if (isHidden(c)) {
-        hiddenDropped += 1;
-      } else {
-        out += inlineSelf(c);
-      }
-    }
-    return out;
-  };
+
 
   const listLines = (list: HtmlNode, depth: number): string[] => {
     const indent = "  ".repeat(depth);
@@ -245,10 +251,15 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
     const out: string[] = [];
     for (const c of list.children) {
       if (typeof c === "string" || c.tag !== "li") continue;
+      if (isHidden(c)) {
+        hiddenDropped += 1;
+        continue;
+      }
       out.push(`${indent}${marker} ${liLabel(c)}`);
       for (const n of c.children) {
         if (typeof n !== "string" && (n.tag === "ul" || n.tag === "ol")) {
-          out.push(...listLines(n, depth + 1));
+          if (isHidden(n)) hiddenDropped += 1;
+          else out.push(...listLines(n, depth + 1));
         }
       }
     }
@@ -290,7 +301,7 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
     } else if (tag === "pre") {
       const code = el.children.find((c): c is HtmlNode => typeof c !== "string" && c.tag === "code");
       const cls = (code?.attrs.class ?? "").match(/(?:language|lang)-([a-zA-Z0-9+#-]+)/);
-      const body = textOf(code ?? el).replace(/\n$/, "");
+      const body = visibleTextOf(code ?? el).replace(/\n$/, "");
       // Canonical output must be re-parse-safe (INV-3): a ``` line inside
       // <pre> would close the fence early and leak body lines as live
       // blocks. Emit the fence one longer than the longest body run.
@@ -357,9 +368,23 @@ function tableBlock(el: HtmlNode): BlockNode {
       ? []
       : section.children
           .filter((c): c is HtmlNode => typeof c !== "string" && c.tag === "tr")
+          .filter((tr) => {
+            if (isHidden(tr)) {
+              hiddenDropped += 1;
+              return false;
+            }
+            return true;
+          })
           .map((tr) =>
             tr.children
               .filter((c): c is HtmlNode => typeof c !== "string" && (c.tag === "td" || c.tag === "th"))
+              .filter((cell) => {
+                if (isHidden(cell)) {
+                  hiddenDropped += 1;
+                  return false;
+                }
+                return true;
+              })
               .map((cell) => cellText(inlineMdVisible(cell).replace(/\s+/g, " ").trim())),
           );
   const section = (name: string) =>
@@ -405,13 +430,17 @@ function formBlock(form: HtmlNode, source: string, notes: string[]): BlockNode {
     for (const c of node.children) {
       if (typeof c === "string") continue;
       if (c.tag === "form") continue;
+      if (isHidden(c)) {
+        hiddenDropped += 1;
+        continue;
+      }
       collect(c);
       if (c.tag === "input" || c.tag === "textarea" || c.tag === "select") {
         addControl(c, fields, notes);
       } else if (c.tag === "button") {
         const type = (c.attrs.type ?? "submit").toLowerCase();
         if (type === "submit") {
-          const label = textOf(c).trim() || "Submit";
+          const label = visibleTextOf(c).trim() || "Submit";
           const base = slug(label) || "submit";
           let key = base;
           for (let k = 2; Object.hasOwn(fields, key); k += 1) key = `${base}-${k}`;
@@ -461,7 +490,14 @@ function addControl(
   } else if (el.tag === "select") {
     const options = el.children
       .filter((c): c is HtmlNode => typeof c !== "string" && c.tag === "option")
-      .map((o) => o.attrs.value ?? textOf(o).trim());
+      .filter((o) => {
+        if (isHidden(o)) {
+          hiddenDropped += 1;
+          return false;
+        }
+        return true;
+      })
+      .map((o) => o.attrs.value ?? visibleTextOf(o).trim());
     fields[key] = `select(options=${JSON.stringify(options)})`;
   }
 }

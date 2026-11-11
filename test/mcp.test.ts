@@ -82,7 +82,13 @@ describe("mcp tools", () => {
     const scheme = await tool.run({ url: "ftp://example.com/x" });
     expect(JSON.parse(scheme.content[0]!.text)).toMatchObject({ error: { code: "E_EDGE_SCHEME" } });
     const unknownFormat = await tool.run({ url: "http://f.test/r", format: "nope" });
-    expect(JSON.parse(unknownFormat.content[0]!.text)).toMatchObject({ error: "unknown format: nope" });
+    expect(JSON.parse(unknownFormat.content[0]!.text)).toMatchObject({
+      error: { code: "E_EDGE_FORMAT", message: "unknown format: nope" },
+    });
+    expect(unknownFormat.isError).toBe(true);
+    const raw = await tool.run({ url: "http://f.test/r", format: "raw" });
+    expect(raw.isError).toBe(true);
+    expect(JSON.parse(raw.content[0]!.text)).toMatchObject({ error: { code: "E_EDGE_FORMAT" } });
   });
 
   it("transcode keeps the SSRF guard by default (no options leak between tests)", async () => {

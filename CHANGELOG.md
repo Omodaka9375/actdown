@@ -10,16 +10,22 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
 
 ### Added
 
-- Anti-cloaking in html2ad: author-hidden elements (`hidden` attribute,
-  `aria-hidden="true"`, `template`, and inline styles `display:none`,
-  `visibility:hidden`, `content-visibility:hidden`, `opacity:0`,
-  `font-size:0`, negative `text-indent`) are dropped on every conversion
-  path (blocks, headings, links, buttons, table cells, list labels, inline
-  wrappers) and reported as one aggregate audit note with no content
-  preview. Invisible text is a classic prompt-injection carrier for agents
-  reading converted pages; it can no longer survive downconversion as
-  prose. Markup-based detection: text hidden only by rendered-page CSS
-  (site classes, matching colors) is not caught.
+- **MCP reader mode (primary product surface):** `actdown_transcode` fetches
+  a URL and returns canonical actdown, JSON AST, or rendered HTML. The stdio
+  server exposes seven tools and two in-session authoring guides. It uses the
+  same guard stack as the gateway and returns MCP error results with
+  `{ error: { code, message } }`. See the README quickstart.
+- Package and gateway surfaces: `actdown-mcp` and `actdown-edge` binaries,
+  `actdown/mcp` and `actdown/serve` exports, `createEdgeServer` in the root
+  API, and a `prepack` build. MCP smoke and entry-point checks cover npm-link
+  invocation and the token-free loopback gateway.
+- Anti-cloaking in html2ad: author-hidden markup is dropped and reported as
+  one aggregate audit note with no content preview. Recognized cases include
+  the `hidden` attribute, `aria-hidden="true"`, `template`, and several inline
+  hiding styles, including encoded attributes and CSS comments. Detection is
+  markup-based and best-effort, not prompt-injection prevention: external CSS,
+  matching colors, off-screen positioning, and all converted visible text
+  remain untrusted.
 - Gateway auth hardening: per-identity tokens (`EDGE_TOKENS` inline text or
   `EDGE_TOKENS_FILE`, `name=token` per line; the file is re-read per request
   so rotation needs no restart, and overlap during rotation works), native
@@ -41,10 +47,9 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   foreign block by one blank line (INV-3); fixed in both implementations.
 - Edge gateway hardening: every hostname (initial request and each redirect
   hop) is resolved via DNS and refused when any resolved address is private,
-  loopback, or link-local (`E_EDGE_PRIVATE`). Resolution failures map to
-  `E_EDGE_FETCH`. The resolver is injectable (`EdgeOptions.resolver`) for
-  tests and policy. A residual connect-time re-resolution window remains;
-  full DNS-rebinding defense still needs restricted network egress.
+  loopback, or special-use (`E_EDGE_PRIVATE`). The default fetcher pins the
+  socket to the validated address while preserving HTTP Host, TLS SNI, and
+  the URL port. An injected custom fetcher owns its own connection policy.
 - Gateway limits and operations: explicit listen address (`HOST`, loopback
   by default), per-IP request rate (`EDGE_RATE_LIMIT`, `429 E_EDGE_RATE`),
   in-flight transcode cap (`503 E_EDGE_BUSY`), inbound body cap (`413
@@ -81,20 +86,9 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   as `lint(doc)` and mirrored in the Rust port as `actdown::lint(&Doc)`
   (with the same three warnings and identical fixtures in
   `actdown-rs/tests/lint.rs`).
-- MCP server expansion: a new `actdown_transcode` tool fetches a URL and
-  returns clean canonical ad (or AST / rendered HTML) - the agent "reader
-  mode". It runs the full gateway guard stack (private/loopback targets
-  refused, redirects re-checked per hop, body cap, scripts never carried,
-  author-hidden content dropped with an aggregate note) and returns
-  structured errors (`{ error: { code, message } }`) instead of throwing.
-  The server bootstrap is now entry-point-guarded, so importing the module
-  (tests, host embedding) no longer captures process.stdin; tools are
-  exported for direct use (`TOOLS`, `setTranscodeOptions` for host-injected
-  edge options). A new `actdown_html2ad` tool converts HTML pages to
-  canonical ad (returning `{ canonical, notes, source }`), and the server
-  advertises resources: `actdown://guide/authoring` and
-  `actdown://guide/grammar` embed an authoring guide and block-grammar
-  reference so an agent can learn the format in-session.
+- `actdown_html2ad` converts existing HTML to canonical ad (returning
+  `{ canonical, notes, source }`). Resources `actdown://guide/authoring` and
+  `actdown://guide/grammar` teach the format in-session.
 
 - Markdown superset with `ad-*` fenced blocks: state, data, action, form,
   table, image, link, chart, region (level 1), bindings, `when=`/`each=`
@@ -112,7 +106,7 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
 - Rust port (`actdown-rs`) byte-exact with the reference implementation on
   all 10 conformance vectors (ast/canonical/html/reactive goldens); WASM
   build via a flat C ABI (`src/wasm.rs`) and a self-contained playground.
-- Shared conformance vectors (`vectors/`) and a 154-test vitest suite.
+- Shared conformance vectors (`vectors/`) and the TypeScript/Rust test suites.
 
 ### Known limits
 
@@ -120,10 +114,10 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   so async phase behavior is not identical across implementations.
 - The edge gateway is a development preview: shared-token and per-identity
   auth, native TLS termination, rate limits, and an SSRF resolution guard
-  are in, but the fetch re-resolves DNS at connect time (a rebinding TOCTOU
-  window), and per-user identities beyond named tokens (real accounts),
-  client certificates, and ACME are open. Front it with a TLS proxy for
-  real deployments; not for public exposure.
+  are in. Default connections are pinned to validated addresses. Real user
+  accounts, client certificates, and ACME are open; front a public gateway
+  with a TLS proxy and an explicit access policy. Converted page content
+  remains untrusted input to the agent.
 
 ### Fixed
 

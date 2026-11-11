@@ -122,6 +122,36 @@ describe("html2ad (SPEC 12)", () => {
     expect(JSON.stringify(doc)).not.toContain("one");
   });
 
+  it("filters hidden lists, rows, code descendants, and form options", () => {
+    const { doc } = htmlToDoc(
+      '<ul><li style="display:none">HIDDEN_LI</li><li>shown</li></ul>' +
+      '<table><tr><th>head</th></tr><tr style="display:none"><td>HIDDEN_ROW</td></tr><tr><td>shown</td></tr></table>' +
+      '<pre><code><span style="display:none">HIDDEN_CODE</span>shown</code></pre>' +
+      '<form><button><span style="display:none">HIDDEN_BUTTON</span>Send</button>' +
+      '<select name="topic"><option style="display:none">HIDDEN_OPTION</option><option>safe</option></select></form>',
+    );
+    const dump = JSON.stringify(doc);
+    for (const marker of ["HIDDEN_LI", "HIDDEN_ROW", "HIDDEN_CODE", "HIDDEN_BUTTON", "HIDDEN_OPTION"]) {
+      expect(dump).not.toContain(marker);
+    }
+    expect(dump).toContain("shown");
+    expect(dump).toContain("Send");
+  });
+
+  it("decodes encoded attributes before visibility checks and preserves URLs", () => {
+    const { doc } = htmlToDoc(
+      '<span style="display&#58;none">ENCODED_HIDDEN</span>' +
+      '<a href="/search?a=1&amp;b=2">link</a>' +
+      '<span style="display:/**/none">COMMENT_HIDDEN</span>' +
+      '<span style="opacity:0.0">DECIMAL_HIDDEN</span>',
+    );
+    const dump = JSON.stringify(doc);
+    expect(dump).not.toContain("ENCODED_HIDDEN");
+    expect(dump).not.toContain("COMMENT_HIDDEN");
+    expect(dump).not.toContain("DECIMAL_HIDDEN");
+    expect(dump).toContain("/search?a=1&b=2");
+  });
+
   it("clean pages get no hidden-content note", () => {
     const { notes } = htmlToDoc("<p>normal text only</p><b>bold</b>");
     expect(notes).toEqual([]);
