@@ -92,6 +92,9 @@ hosted service or an end-user application:
    implementations.
 5. **`src/edge.ts` and `src/serve.ts`**: an embeddable transcoder core and
    a development HTTP gateway for HTML-to-ad conversion.
+6. **`src/mcp.ts`**: a zero-dependency stdio MCP server (7 tools, 2
+   in-session guides) so MCP clients can transcode, convert, render, and
+   check documents without writing glue.
 
 There is no prebuilt hosted UI or capability catalog. The integrating
 application decides which capabilities exist and what they are allowed to
@@ -130,6 +133,26 @@ rendered binding spans then show the new value.
 The host parses ad into the AST, or converts an existing HTML page. It
 can then inspect canonical ad or JSON without executing document code.
 The edge gateway exposes the same conversion over HTTP during development.
+
+For MCP clients, the stdio server is the fastest path ("reader mode" for
+agents): point the client at the server, and the agent gets
+`actdown_transcode` (fetch a URL, get clean canonical ad with the SSRF
+guard stack and anti-cloaking enforced), `actdown_html2ad`, and the
+render/check tools plus the in-session guides:
+
+```json
+{
+  "mcpServers": {
+    "actdown": {
+      "command": "npx",
+      "args": ["-y", "actdown-mcp"]
+    }
+  }
+}
+```
+
+(`actdown-mcp` is a thin wrapper package around this package's
+`dist/mcp.js`; run `node dist/mcp.js` directly from a checkout.)
 
 ### 3. Render and connect host-owned actions
 

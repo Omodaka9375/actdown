@@ -16,6 +16,9 @@
  *   actdown_ast        doc -> JSON AST (SPEC 8)
  *   actdown_check      doc -> diagnostics array (empty when valid)
  *   actdown_html2ad    html -> canonical ad (lossy downconversion, SPEC 12)
+ *   actdown_transcode  url -> fetch + downconvert (the agent "reader mode";
+ *                      SSRF-guarded: private/loopback targets refused,
+ *                      redirects re-checked per hop, body capped)
  *
  * Resources (embedded guides so an agent can learn the format in-session):
  *   actdown://guide/authoring   how to write .ad documents
@@ -34,6 +37,7 @@ import {
   renderReactive,
   htmlToDoc,
 } from "./index.js";
+import { transcodeUrl, type EdgeFormat, type EdgeOptions } from "./edge.js";
 
 // --- tool implementations ---------------------------------------------------
 interface ToolResult {
@@ -41,11 +45,24 @@ interface ToolResult {
   isError?: boolean;
 }
 
+/**
+ * Edge options for actdown_transcode. Default: the full guard stack
+ * (private targets refused, redirects re-checked per hop, body cap).
+ * Hosts may relax via allowPrivate for controlled local fixtures, or
+ * inject a fetcher/resolver in tests.
+ */
+let transcodeOpts: EdgeOptions = {};
+
+/** Replace the edge options used by actdown_transcode (host/test seam). */
+export function setTranscodeOptions(opts: EdgeOptions): void {
+  transcodeOpts = opts;
+}
+
 function text(x: string): ToolResult {
   return { content: [{ type: "text", text: x }] };
 }
 
-type ToolArgs = { doc?: string; html?: string; source?: string };
+type ToolArgs = { doc?: string; html?: string; source?: string; url?: string; format?: string };
 
 /** Validate the input document; return diagnostics (empty when valid). */
 function checkDoc(input: string | undefined) {
@@ -64,13 +81,16 @@ function checkDoc(input: string | undefined) {
   }));
 }
 
-const TOOLS: Record<
+export interface McpTool {
+  description: string;
+  inputSchema: Record<string, unknown>;
+  run: (args: ToolArgs) => ToolResult | Promise<ToolResult>;
+}
+
+/** Tool registry; exported for tests only (the wire surface is JSON-RPC). */
+export const TOOLS: Record<
   string,
-  {
-    description: string;
-    inputSchema: Record<string, unknown>;
-    run: (args: ToolArgs) => ToolResult;
-  }
+  McpTool
 > = {
   actdown_render: {
     description:
@@ -175,6 +195,51 @@ const TOOLS: Record<
           2,
         ),
       );
+    },
+  },
+  actdown_transcode: {
+    description:
+      "Fetch a web page by URL and downconvert it to canonical actdown: the " +
+      "agent \"reader mode\". Guards are on: private/loopback targets are " +
+      "refused (SSRF), every redirect hop is re-checked, the body is capped, " +
+      "and scripts never reach the output; author-hidden content is dropped " +
+      "and reported. Returns JSON { source, canonical, notes, format }. " +
+      "Input: { url: string, format?: \"canonical\" | \"ast\" | \"html\" }.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "Absolute http(s) URL to fetch and convert." },
+        format: {
+          type: "string",
+          enum: ["canonical", "ast", "html"],
+          description: "Response format (default canonical; ast = JSON AST, html = rendered).",
+        },
+      },
+      required: ["url"],
+    },
+    async run(args) {
+      const url = args.url ?? "";
+      let fmt: EdgeFormat = "canonical";
+      if (args.format === "ast" || args.format === "html" || args.format === "canonical") {
+        fmt = args.format;
+      } else if (args.format !== undefined && args.format !== "raw") {
+        return text(JSON.stringify({ error: `unknown format: ${args.format}` }, null, 2));
+      }
+      try {
+        const result = await transcodeUrl(url, transcodeOpts);
+        const { doc, notes, source } = result;
+        if (fmt === "ast") {
+          return text(JSON.stringify({ source, notes, format: fmt, ast: JSON.parse(toJSON(doc)) }, null, 2));
+        }
+        if (fmt === "html") {
+          return text(JSON.stringify({ source, notes, format: fmt, html: renderReactive(doc) }, null, 2));
+        }
+        return text(JSON.stringify({ source, notes, format: fmt, canonical: format(print(canonicalize(doc))) }, null, 2));
+      } catch (err: unknown) {
+        const code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "E_EDGE_INTERNAL";
+        const message = err instanceof Error ? err.message : String(err);
+        return text(JSON.stringify({ error: { code, message } }, null, 2));
+      }
     },
   },
 };
@@ -395,7 +460,18 @@ function handle(msg: JSONRPCRequest): void {
       return;
     }
     try {
-      reply(id, tool.run((params?.arguments ?? {}) as ToolArgs));
+      const out = tool.run((params?.arguments ?? {}) as ToolArgs);
+      if (out instanceof Promise) {
+        void out.then(
+          (r) => reply(id, r),
+          (err: unknown) => {
+            const message = err instanceof Error ? err.message : String(err);
+            reply(id, { content: [{ type: "text", text: `error: ${message}` }], isError: true });
+          },
+        );
+      } else {
+        reply(id, out);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       reply(id, {
@@ -410,24 +486,32 @@ function handle(msg: JSONRPCRequest): void {
   fail(id, -32601, `method not found: ${method}`);
 }
 
-const rl = createInterface({ input: process.stdin, terminal: false });
-rl.on("line", (line) => {
-  const trimmed = line.trim();
-  if (trimmed === "") return;
-  let msg: JSONRPCRequest;
-  try {
-    msg = JSON.parse(trimmed) as JSONRPCRequest;
-  } catch {
-    // Not JSON: answer with a protocol error (id unknown, so null) rather
-    // than dropping the frame silently - a stuck client deserves a reply.
-    fail(null, -32700, "parse error");
-    return;
-  }
-  try {
-    handle(msg);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    fail(msg?.id ?? null, -32603, `internal error: ${message}`);
-  }
-});
-rl.on("close", () => process.exit(0));
+/** Start the stdio loop. Only run when this file is the entry point: an
+ * import (tests, tools poking at TOOLS) must not capture process.stdin. */
+function main(): void {
+  const rl = createInterface({ input: process.stdin, terminal: false });
+  rl.on("line", (line) => {
+    const trimmed = line.trim();
+    if (trimmed === "") return;
+    let msg: JSONRPCRequest;
+    try {
+      msg = JSON.parse(trimmed) as JSONRPCRequest;
+    } catch {
+      // Not JSON: answer with a protocol error (id unknown, so null) rather
+      // than dropping the frame silently - a stuck client deserves a reply.
+      fail(null, -32700, "parse error");
+      return;
+    }
+    try {
+      handle(msg);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      fail(msg?.id ?? null, -32603, `internal error: ${message}`);
+    }
+  });
+  rl.on("close", () => process.exit(0));
+}
+
+if (process.argv[1] !== undefined && (await import("node:url")).pathToFileURL(process.argv[1]).href === import.meta.url) {
+  main();
+}

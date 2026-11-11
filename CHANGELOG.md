@@ -81,9 +81,18 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   as `lint(doc)` and mirrored in the Rust port as `actdown::lint(&Doc)`
   (with the same three warnings and identical fixtures in
   `actdown-rs/tests/lint.rs`).
-- MCP server expansion: a new `actdown_html2ad` tool converts HTML pages to
+- MCP server expansion: a new `actdown_transcode` tool fetches a URL and
+  returns clean canonical ad (or AST / rendered HTML) - the agent "reader
+  mode". It runs the full gateway guard stack (private/loopback targets
+  refused, redirects re-checked per hop, body cap, scripts never carried,
+  author-hidden content dropped with an aggregate note) and returns
+  structured errors (`{ error: { code, message } }`) instead of throwing.
+  The server bootstrap is now entry-point-guarded, so importing the module
+  (tests, host embedding) no longer captures process.stdin; tools are
+  exported for direct use (`TOOLS`, `setTranscodeOptions` for host-injected
+  edge options). A new `actdown_html2ad` tool converts HTML pages to
   canonical ad (returning `{ canonical, notes, source }`), and the server
-  now advertises resources: `actdown://guide/authoring` and
+  advertises resources: `actdown://guide/authoring` and
   `actdown://guide/grammar` embed an authoring guide and block-grammar
   reference so an agent can learn the format in-session.
 

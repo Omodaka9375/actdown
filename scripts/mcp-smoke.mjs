@@ -44,8 +44,9 @@ expect("initialize returns serverInfo", init.result?.serverInfo?.name === "actdo
 
 const list = await call("tools/list", {});
 const names = list.result?.tools?.map((t) => t.name) ?? [];
-expect("tools/list has 6 tools", names.length === 6, names.join(","));
+expect("tools/list has 7 tools", names.length === 7, names.join(","));
 expect("render tool listed", names.includes("actdown_render"));
+expect("transcode tool listed", names.includes("actdown_transcode"));
 
 const initCaps = init.result?.capabilities ?? {};
 expect("resources capability advertised", initCaps?.resources !== undefined, JSON.stringify(initCaps));
@@ -82,6 +83,22 @@ expect("ast is the JSON contract", ast.result?.content?.[0]?.text?.includes('"ad
 
 const bad = await call("tools/call", { name: "actdown_check", arguments: { doc: "```ad-state\nn: [unclosed\n```" } });
 expect("check reports diagnostics", (bad.result?.content?.[0]?.text ?? "").includes("diagnostics"), bad.result?.content?.[0]?.text);
+
+// actdown_transcode: fetch a loopback fixture page. allowPrivate is not
+// available in the stdio server by design, so the tool runs the same guard
+// stack as the gateway; a private target must be refused, a public-looking
+// name is resolved... here we point at 127.0.0.1 and EXPECT the SSRF guard
+// to refuse it, then exercise the happy path via the file-less trick: none.
+// The guard refusal IS the happy path for a stdio server on a laptop.
+const priv = await call("tools/call", { name: "actdown_transcode", arguments: { url: "http://127.0.0.1:9/x" } });
+expect(
+  "transcode refuses private targets",
+  (priv.result?.content?.[0]?.text ?? "").includes("E_EDGE_PRIVATE"),
+  priv.result?.content?.[0]?.text,
+);
+
+const badUrl = await call("tools/call", { name: "actdown_transcode", arguments: { url: "not a url" } });
+expect("transcode rejects bad urls", (badUrl.result?.content?.[0]?.text ?? "").includes("E_EDGE_URL"), badUrl.result?.content?.[0]?.text);
 
 const unknown = await call("tools/call", { name: "nope", arguments: {} });
 expect("unknown tool errors", unknown.error?.code === -32602, JSON.stringify(unknown));
