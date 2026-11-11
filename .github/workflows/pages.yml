@@ -46,7 +46,7 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p site/playground
-          cp docs/index.html site/index.html
+          cp docs/* site/
           cp actdown-rs/playground.html site/playground/index.html
           touch site/.nojekyll
       - uses: actions/upload-pages-artifact@v5
