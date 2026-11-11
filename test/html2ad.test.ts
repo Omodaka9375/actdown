@@ -152,6 +152,28 @@ describe("html2ad (SPEC 12)", () => {
     expect(dump).toContain("/search?a=1&b=2");
   });
 
+  it("reader mode prefers primary content and skips empty controls", () => {
+    const ad = html2ad(
+      '<header>Site header</header><nav>Site navigation</nav>' +
+      '<main><article><h1>Useful guide</h1><p>Read this first.</p>' +
+      '<button></button><a href="/empty"></a></article></main>' +
+      '<footer>Site footer</footer>',
+    );
+    expect(ad).toContain("# Useful guide");
+    expect(ad).toContain("Read this first.");
+    expect(ad).not.toContain("Site header");
+    expect(ad).not.toContain("Site navigation");
+    expect(ad).not.toContain("Site footer");
+    expect(ad).not.toContain("ad-action");
+    expect(ad).not.toContain("ad-link");
+  });
+
+  it("keeps full-document conversion when no main element exists", () => {
+    const ad = html2ad("<p>Front matter</p><article><p>Article text</p></article>");
+    expect(ad).toContain("Front matter");
+    expect(ad).toContain("Article text");
+  });
+
   it("clean pages get no hidden-content note", () => {
     const { notes } = htmlToDoc("<p>normal text only</p><b>bold</b>");
     expect(notes).toEqual([]);

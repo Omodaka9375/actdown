@@ -121,6 +121,7 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
 
 ### Fixed
 
+- Reader conversion now starts at the first `<main>` element when present, excluding page headers and surrounding navigation. Empty link and button controls no longer produce semantic blocks. Pages without `<main>` retain full-document conversion.
 - GFM pipe tables inside prose now render as `<table>` in both
   implementations; previously they fell through to paragraph text and the
   `|---|` delimiter row printed literally.

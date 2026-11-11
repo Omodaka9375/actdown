@@ -62,9 +62,21 @@ function mdEscape(s: string): string {
  * (inert by definition), and inline styles `display:none`,
  * `visibility:hidden`, `content-visibility:hidden`, `opacity:0`,
  * `font-size:0`, negative `text-indent`. NOT detected (needs rendered
- * layout): colors equal to the background, off-screen positioning, site
- * CSS classes like `sr-only`. A page can still hide text from this check.
+/** Prefer the document's primary content over site chrome in reader mode.
+ * A page without <main> retains full-document conversion. Do not select
+ * <article>: it is commonly used for each item in a repeated listing.
  */
+function readerRoot(root: HtmlNode): HtmlNode {
+  if (root.tag === "main") return root;
+  for (const child of root.children) {
+    if (typeof child !== "string") {
+      const found = readerRoot(child);
+      if (found.tag === "main") return found;
+    }
+  }
+  return root;
+}
+
 function isHidden(el: HtmlNode): boolean {
   if (el.tag === "template") return true;
   if (Object.hasOwn(el.attrs, "hidden")) return true;
@@ -201,7 +213,7 @@ export interface Conversion {
 }
 
 export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
-  const root = parseHtml(html);
+  const root = readerRoot(parseHtml(html));
   const nodes: Node[] = [];
   const prose: string[] = [];
   const notes: string[] = [];
@@ -330,12 +342,16 @@ export function htmlToDoc(html: string, opts: Html2AdOptions = {}): Conversion {
       if (attrs.href === undefined) {
         pushInline(inlineMdVisible(el)); // named anchor: collapse to text
       } else {
-        const b = block("link", { href: attrs.href }, {}, inlineMdVisible(el).replace(/\s+/g, " ").trim(), "link");
-        b.id = slug(attrs.id ?? "");
-        pushBlock(b);
+        const label = inlineMdVisible(el).replace(/\s+/g, " ").trim();
+        if (label !== "") {
+          const b = block("link", { href: attrs.href }, {}, label, "link");
+          b.id = slug(attrs.id ?? "");
+          pushBlock(b);
+        }
       }
     } else if (tag === "button") {
-      pushBlock(buttonBlock(el));
+      const b = buttonBlock(el);
+      if (b.body !== "") pushBlock(b);
     } else if (tag === "form") {
       pushBlock(formBlock(el, source, notes));
     } else if (BLOCK_CONTAINER.has(tag) || tag === "p") {

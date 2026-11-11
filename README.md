@@ -49,7 +49,7 @@ For a checkout, run `pnpm build` and configure your MCP client to run `node dist
 
 ## Conversion and security boundaries
 
-- **Conversion is lossy.** Headings, paragraphs, lists, tables, links, images, forms, and buttons become prose or semantic blocks. Script and style elements are removed. Inline event handlers are never executed, but their source may remain as an inert `x-legacy-handler` audit note.
+- **Conversion is lossy.** Reader output prefers the first `<main>` element when present, excluding page headers and surrounding navigation. Pages without `<main>` are converted as complete documents. Headings, paragraphs, lists, tables, links, images, forms, and buttons become prose or semantic blocks. Script and style elements are removed. Inline event handlers are never executed, but their source may remain as an inert `x-legacy-handler` audit note.
 - **Converted text is untrusted data, including visible text.** The converter does not detect prompt-injection instructions or decide whether content is trustworthy. Agents must treat it as page content, not instructions from the host or user.
 - Recognized hidden markup (`hidden`, `aria-hidden`, `template`, and several inline CSS hiding declarations) is dropped and counted in an aggregate note, without a text preview. External CSS, site-specific classes, matching colors, off-screen positioning, and other layout-only hiding are not detected.
 - Private, loopback, link-local, selected special-use, and IPv4-mapped private targets are refused by default. DNS answers and every redirect are checked. The default fetcher pins the connection to a validated address while retaining the original HTTP Host and TLS SNI. A custom fetcher owns its own connection policy.
