@@ -10,7 +10,7 @@ actdown fetches HTML and converts it to canonical `.ad` text or a JSON AST. It r
 
 ## MCP quickstart
 
-After `actdown@0.1.0` is published to npm, add this to your MCP client configuration:
+Add this to your MCP client configuration:
 
 ```json
 {
@@ -45,7 +45,7 @@ The result is JSON text with the fetched source, converted document, format, and
 
 `format: "ast"` returns a JSON AST (`ad: "0.1"`). `format: "html"` returns rendered HTML. Already have HTML? Use `actdown_html2ad` with `{ html, source? }`; it converts text directly without fetching a URL.
 
-The package is not yet published. For a checkout, run `pnpm build` and configure your MCP client to run `node dist/mcp.js` instead. The server exposes seven tools and two in-session authoring guides (`actdown://guide/authoring` and `actdown://guide/grammar`).
+For a checkout, run `pnpm build` and configure your MCP client to run `node dist/mcp.js` instead. The server exposes seven tools and two in-session authoring guides (`actdown://guide/authoring` and `actdown://guide/grammar`).
 
 ## Conversion and security boundaries
 
