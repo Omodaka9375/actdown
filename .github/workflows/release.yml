@@ -51,7 +51,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           version="${RELEASE_TAG#v}"
-          awk -v heading="## [${version}]" '$0 ~ "^" heading " " { capture = 1; next } capture && /^## \[/ { exit } capture { print }' CHANGELOG.md > RELEASE_NOTES.md
+          awk -v version="${version}" 'index($0, "## [" version "] ") == 1 { capture = 1; next } capture && /^## \[/ { exit } capture { print }' CHANGELOG.md > RELEASE_NOTES.md
           test -s RELEASE_NOTES.md
       - name: Create prerelease with assets
         uses: softprops/action-gh-release@v3
