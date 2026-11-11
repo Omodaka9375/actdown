@@ -10,4 +10,7 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
+# browser test scratch (headless chrome profiles)
+.browser-test-profile/
+
 .git-commit-msg.tmp

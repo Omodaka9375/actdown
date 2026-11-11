@@ -1,0 +1,223 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>actdown DOM adapter fixture</title>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+/**
+ * Real-browser exercise of hydrateDom (SPEC 11), mirroring the FakeEl unit
+ * tests in test/dom.test.ts but against a genuine DOM: real HTMLElement
+ * hidden/closest/event dispatch/input values. Results land in
+ * window.__results as { name: { pass, detail } }; the vitest driver
+ * (test/browser-dom.test.ts) polls window.__done and asserts over CDP.
+ *
+ * Sources use explicit ids everywhere a listener or region reference needs
+ * one, so no canonicalize() (and therefore no node:crypto) is required in
+ * the page: the library loads as plain ES modules from /dist/... (served
+ * by the driver's static server).
+ */
+import { parse } from "/dist/parse.js";
+import { renderReactive } from "/dist/react.js";
+import { hydrateDom } from "/dist/dom.js";
+
+const results = {};
+window.__results = results;
+window.__done = false;
+
+const record = (name, fn) =>
+  Promise.resolve()
+    .then(fn)
+    .then(() => (results[name] = { pass: true }))
+    .catch((err) => (results[name] = { pass: false, detail: err instanceof Error ? `${err.message}` : String(err) }));
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const COUNTER = `# Counter
+
+\`\`\`ad-state
+count: 0
+\`\`\`
+
+\`\`\`ad-action?name=counter.inc&role=primary
+id: inc
+---
+Add one ({count})
+\`\`\`
+
+Count is {count}.
+`;
+
+const CONTACT = `# Contact
+
+\`\`\`ad-form?id=contact&action=cap:contact-form@v1
+email: input(email, required)
+notify: input(checkbox)
+\`\`\`
+
+\`\`\`ad-region
+for: contact
+phase: pending
+---
+Sending...
+\`\`\`
+
+\`\`\`ad-region
+for: contact
+phase: success
+---
+Thanks, {email}.
+\`\`\`
+`;
+
+const EACH = `\`\`\`ad-state
+items: [10, 20]
+\`\`\`
+
+\`\`\`ad-action?name=item.pick&id=pick&each=item%20in%20items
+on:click: cap.send("item.pick", $index)
+---
+Pick {item}
+\`\`\`
+`;
+
+const app = document.getElementById("app");
+const mount = (html) => {
+  app.innerHTML = "";
+  const root = document.createElement("div");
+  root.innerHTML = html;
+  app.appendChild(root);
+  return root;
+};
+
+const spansOf = (root) => [...root.querySelectorAll("[data-ad-bind]")].map((s) => s.textContent);
+const byDataId = (root, id) => [...root.querySelectorAll(`[data-ad-id="${id}"]`)][0] ?? null;
+const phaseEl = (root, phase) => [...root.querySelectorAll(`[data-ad-phase="${phase}"]`)][0] ?? null;
+const click = (el) => el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+async function main() {
+  const captured = [];
+  window.__captured = captured;
+
+  // 1. Counter: initial bindings.
+  await record("counter_initial", () => {
+    const root = mount(renderReactive(parse(COUNTER).doc));
+    const spans = spansOf(root);
+    if (JSON.stringify(spans) !== JSON.stringify(["0", "0"])) {
+      throw new Error(`initial spans: ${JSON.stringify(spans)}`);
+    }
+    return root;
+  });
+
+  // 2. Counter: click updates the SAME elements in place.
+  await record("counter_click_in_place", () => {
+    const root = mount(renderReactive(parse(COUNTER).doc));
+    const spans = [...root.querySelectorAll("[data-ad-bind]")];
+    const handle = hydrateDom(parse(COUNTER).doc, root, {
+      capabilities: {
+        "counter.inc": (_args, ctx) => {
+          ctx.set({ count: (ctx.state.count ?? 0) + 1 });
+        },
+      },
+    });
+    click(byDataId(root, "inc"));
+    return sleep(20).then(() => {
+      const after = [...root.querySelectorAll("[data-ad-bind]")];
+      if (after[0] !== spans[0] || after[1] !== spans[1]) throw new Error("elements were re-rendered, not updated in place");
+      const texts = spans.map((s) => s.textContent);
+      if (JSON.stringify(texts) !== JSON.stringify(["1", "1"])) throw new Error(`texts after click: ${JSON.stringify(texts)}`);
+    });
+  });
+
+  // 3. Contact form: $fields with checkbox, phase toggles, binding refresh.
+  await record("contact_form_phases", () => {
+    const root = mount(renderReactive(parse(CONTACT).doc));
+    const handle = hydrateDom(parse(CONTACT).doc, root, {
+      capabilities: {
+        "cap:contact-form@v1": async (args, ctx) => {
+          captured.push({ cap: "contact-form", args });
+          ctx.set({ email: String(args.email ?? "") });
+        },
+      },
+    });
+    const form = byDataId(root, "contact");
+    const email = [...form.querySelectorAll('[name="email"]')][0];
+    const notify = [...form.querySelectorAll('[name="notify"]')][0];
+    email.value = "a@b.c";
+    notify.checked = true;
+    const ev = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(ev);
+    if (!ev.defaultPrevented) throw new Error("submit default was not prevented");
+    return sleep(20).then(() => {
+      const success = phaseEl(root, "success");
+      const pending = phaseEl(root, "pending");
+      if (success === null || success.hidden) throw new Error("success region not shown");
+      if (pending === null || !pending.hidden) throw new Error("pending region not hidden");
+      if (JSON.stringify(spansOf(root)) !== JSON.stringify(["a@b.c"])) {
+        throw new Error(`binding after submit: ${JSON.stringify(spansOf(root))}`);
+      }
+      const fields = captured[0]?.args ?? {};
+      if (fields.email !== "a@b.c" || fields.notify !== true) {
+        throw new Error(`$fields wrong: ${JSON.stringify(fields)}`);
+      }
+    });
+  });
+
+  // 4. External runtime.set + manual sync refreshes bindings.
+  await record("external_set_sync", () => {
+    const root = mount(renderReactive(parse(COUNTER).doc));
+    const handle = hydrateDom(parse(COUNTER).doc, root);
+    handle.runtime.set({ count: 7 });
+    handle.sync();
+    if (spansOf(root).some((t) => t !== "7")) throw new Error(`spans after set+sync: ${JSON.stringify(spansOf(root))}`);
+  });
+
+  // 5. each= clones: per-clone listeners with $index and clone-scoped
+  //    bindings (the closest() resolution the fake elements could not do).
+  await record("each_clones_scoped_bindings", () => {
+    const root = mount(renderReactive(parse(EACH).doc));
+    const handle = hydrateDom(parse(EACH).doc, root, {
+      capabilities: {
+        "item.pick": (args) => {
+          captured.push({ cap: "item.pick", args });
+        },
+      },
+    });
+    const clone0 = byDataId(root, "pick-0");
+    const clone1 = byDataId(root, "pick-1");
+    if (clone0 === null || clone1 === null) throw new Error("each= clones were not rendered");
+    const bindTexts = [...root.querySelectorAll("[data-ad-bind]")].map((s) => s.textContent);
+    if (JSON.stringify(bindTexts) !== JSON.stringify(["10", "20"])) {
+      throw new Error(`clone bindings before click: ${JSON.stringify(bindTexts)}`);
+    }
+    click(clone0);
+    click(clone1);
+    return sleep(20).then(() => {
+      const indexes = captured.filter((c) => c.cap === "item.pick").map((c) => c.args);
+      if (JSON.stringify(indexes) !== JSON.stringify([0, 1])) {
+        throw new Error(`cap args per clone: ${JSON.stringify(indexes)}`);
+      }
+      // The sync pass after the click must NOT erase clone-scoped bindings
+      // to "" (regression the closest() path fixed).
+      const after = [...root.querySelectorAll("[data-ad-bind]")].map((s) => s.textContent);
+      if (JSON.stringify(after) !== JSON.stringify(["10", "20"])) {
+        throw new Error(`clone bindings after click: ${JSON.stringify(after)}`);
+      }
+    });
+  });
+
+  await sleep(0);
+}
+
+main()
+  .catch((err) => {
+    results.top_level = { pass: false, detail: err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err) };
+  })
+  .finally(() => {
+    window.__done = true;
+  });
+</script>
+</body>
+</html>
