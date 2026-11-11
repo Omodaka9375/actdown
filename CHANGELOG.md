@@ -68,8 +68,9 @@ First development preview. Spec draft 0.1 (see `SPEC.md`, normative).
   `W_CAP_UNDECLARED` (an action naming a capability no ad-manifest
   declares). Warnings are reported but fail the run only with `--strict`;
   `actdown_check` in the MCP server includes them. The linter is exported
-  as `lint(doc)`; the Rust port does not implement it yet (tooling, not a
-  spec surface).
+  as `lint(doc)` and mirrored in the Rust port as `actdown::lint(&Doc)`
+  (with the same three warnings and identical fixtures in
+  `actdown-rs/tests/lint.rs`).
 - MCP server expansion: a new `actdown_html2ad` tool converts HTML pages to
   canonical ad (returning `{ canonical, notes, source }`), and the server
   now advertises resources: `actdown://guide/authoring` and

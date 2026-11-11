@@ -56,7 +56,7 @@ pub fn compute_state(doc: &Doc, initial: Option<&Scope>) -> Result<Scope, ExprEr
 }
 
 /// `each="item in expr"` or `each="item, index in expr"` (SPEC 5).
-fn parse_each(raw: &str) -> Option<(String, String, String)> {    static RE: OnceLock<Regex> = OnceLock::new();
+pub fn parse_each(raw: &str) -> Option<(String, String, String)> {    static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
         Regex::new(r"^([a-z][a-z0-9-]*)(?:\s*,\s*([a-z][a-z0-9-]*))?\s+in\s+(.+)$").unwrap()
     });

@@ -17,7 +17,7 @@ pub mod wasm;
 pub mod types;
 
 pub use canonical::{canonicalize, format, print, print_block, to_json};
-pub use diag::ParseError;
+pub use diag::{lint, ParseError};
 pub use expr::{display, eval_expr, evaluate, parse_expr, ExprError};
 pub use include::{inline_includes, InlineOptions};
 pub use literal::{parse_field, print_literal};

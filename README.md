@@ -461,11 +461,12 @@ Cycle protection is `E_INCLUDE_CYCLE`; a src that cannot be loaded is
 `E_INCLUDE_UNRESOLVED`; `cap:` sources stay verbatim for the host to
 resolve. Include paths resolve against the entry document's directory.
 
-Feature work still open includes Rust-side review lints. Rust capabilities
-are synchronous
-while TypeScript capabilities may be asynchronous, so async phase behavior
-is not identical. Do not treat capability names as a security sandbox for
-host functions: capability implementations themselves remain trusted host
-code and must validate their arguments.
+Review lints (`lint(doc)` in TypeScript, `actdown::lint(&Doc)` in Rust)
+flag reviewer-relevant drift in both implementations: `W_REGION_FOR`,
+`W_EXPR_SYNTAX`, and `W_CAP_UNDECLARED`. Rust capabilities are
+synchronous while TypeScript capabilities may be asynchronous, so async
+phase behavior is not identical. Do not treat capability names as a
+security sandbox for host functions: capability implementations
+themselves remain trusted host code and must validate their arguments.
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
