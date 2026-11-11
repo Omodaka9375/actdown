@@ -155,5 +155,6 @@ pnpm test:entrypoints   # npm-link and default gateway checks
 pnpm pack               # builds dist via prepack
 ```
 
+A `v*.*.*` tag matching both package versions triggers the release workflow. It runs the full verification suite, then creates a prerelease with the npm tarball, standalone WASM playground, and SHA-256 checksums. Release notes come from the matching section in `CHANGELOG.md`. The workflow does not publish to npm or crates.io.
 
-[Changelog](CHANGELOG.md) · [Apache-2.0 license](LICENSE)
+[Changelog](CHANGELOG.md) · [Releases](https://github.com/Omodaka9375/actdown/releases) · [Apache-2.0 license](LICENSE)
