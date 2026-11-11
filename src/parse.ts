@@ -82,7 +82,16 @@ export function parse(input: string): ParseResult {
     flushProse();
     const bodyEnd = unclosed ? lines.length : f.end;
     const inner = lines.slice(i + 1, bodyEnd);
-    const raw = lines.slice(i, bodyEnd + (unclosed ? 0 : 1)).join("\n");
+    // INV-3: an unclosed fence's verbatim raw must not absorb trailing blank
+    // lines. print() terminates the document with "\n"; if re-parsing folded
+    // that into an unclosed fence's raw, every format pass would grow the
+    // foreign block by one newline. Closed fences end at their fence line and
+    // are unaffected.
+    let rawEnd = bodyEnd + (unclosed ? 0 : 1);
+    if (unclosed) {
+      while (rawEnd > i + 1 && lines[rawEnd - 1]!.trim() === "") rawEnd -= 1;
+    }
+    const raw = lines.slice(i, rawEnd).join("\n");
     const startLine = i + 1;
     const foreign = (diagnostic?: Diagnostic) => {
       nodes.push({

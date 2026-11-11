@@ -122,6 +122,19 @@ fn three_trailing_spaces_normalize_to_hard_break() {
 }
 
 #[test]
+fn unclosed_foreign_fence_is_idempotent_under_format() {
+    // An unclosed fence's raw must not absorb the document-terminating
+    // newline, or every format pass would grow it by one blank line
+    // (INV-3). Found by the property fuzzer; unknown types are preserved
+    // verbatim as foreign blocks (SPEC 2.1), so an unclosed unknown fence
+    // exercises the raw path. Mirrors test/regressions.test.ts.
+    let src = "```ad-nosuchtype\nstuff\n\n\n";
+    let once = actdown::format(src);
+    assert_eq!(actdown::format(&once), once, "{once}");
+    assert_eq!(once, "```ad-nosuchtype\nstuff\n");
+}
+
+#[test]
 fn call_arguments_count_toward_the_parser_depth_budget() {
     let mut src = "cap.send".to_string();
     for _ in 0..100 {

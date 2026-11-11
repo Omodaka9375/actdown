@@ -249,6 +249,18 @@ alt: "Two words"
     expect(a).not.toEqual(b); // sanity: shapes differ
   });
 
+  it("unclosed foreign fence is idempotent under format (INV-3)", () => {
+    // Found by the property fuzzer: the document-terminating newline must
+    // not fold into an unclosed fence's raw on re-parse, or each format
+    // pass grows the foreign block by one blank line. Unknown types are
+    // preserved verbatim as foreign blocks (SPEC 2.1), so an unclosed
+    // unknown fence exercises the raw path.
+    const src = "```ad-nosuchtype\nstuff\n\n\n";
+    const once = format(src);
+    expect(format(once)).toBe(once);
+    expect(once).toBe("```ad-nosuchtype\nstuff\n");
+  });
+
   it("serve: malformed request target answers 400 (no throw)", async () => {
     const net = await import("node:net");
     const { createEdgeServer } = await import("../src/serve.js");

@@ -156,7 +156,17 @@ pub fn parse(input: &str) -> ParseResult {
         let attr_str = caps.get(2).map_or("", |g| g.as_str());
         let body_end = if unclosed { lines.len() } else { fence.end };
         let inner: Vec<&str> = lines[i + 1..body_end].to_vec();
-        let raw_end = body_end + usize::from(!unclosed);
+        // INV-3: an unclosed fence's verbatim raw must not absorb trailing
+        // blank lines. print() terminates the document with "\n"; if
+        // re-parsing folded that into an unclosed fence's raw, every format
+        // pass would grow the foreign block by one newline. Closed fences
+        // end at their fence line and are unaffected.
+        let mut raw_end = body_end + usize::from(!unclosed);
+        if unclosed {
+            while raw_end > i + 1 && lines[raw_end - 1].trim().is_empty() {
+                raw_end -= 1;
+            }
+        }
         let raw = lines[i..raw_end].join("\n");
         let start_line = (i + 1) as u32;
 

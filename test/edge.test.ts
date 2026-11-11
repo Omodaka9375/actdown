@@ -153,6 +153,79 @@ describe("edge core", () => {
     });
   });
 
+  it("adversarial redirects: loop, malformed Location, scheme downgrade, over-cap chain", async () => {
+    // Redirect loop: the hop cap bounds it (never hangs).
+    let hops = 0;
+    const loop: typeof fetch = () => {
+      hops += 1;
+      return Promise.resolve(new Response(null, { status: 302, headers: { location: "http://loop.test/x" } }));
+    };
+    const publicResolve = async () => [{ address: "1.2.3.4", family: 4 }];
+    await expect(transcodeUrl("http://loop.test/x", { fetcher: loop, resolver: publicResolve })).rejects.toMatchObject({
+      code: "E_EDGE_FETCH",
+    });
+    expect(hops).toBe(6); // 1 initial + 5 capped follow-ups
+
+    // A redirect whose Location is not a valid URL is a fetch error.
+    const badLoc: typeof fetch = () =>
+      Promise.resolve(new Response(null, { status: 302, headers: { location: "http://\u0000junk" } }));
+    await expect(transcodeUrl("http://start.test/x", { fetcher: badLoc, resolver: publicResolve })).rejects.toMatchObject({
+      code: "E_EDGE_FETCH",
+    });
+
+    // A redirect with no Location header ends the chain, then fails on ok().
+    const noLoc: typeof fetch = () => Promise.resolve(new Response(null, { status: 302 }));
+    await expect(transcodeUrl("http://start.test/x", { fetcher: noLoc, resolver: publicResolve })).rejects.toMatchObject({
+      code: "E_EDGE_FETCH",
+    });
+
+    // A redirect that downgrades to a non-http(s) scheme is refused.
+    const toFtp: typeof fetch = () =>
+      Promise.resolve(new Response(null, { status: 302, headers: { location: "ftp://example.com/x" } }));
+    await expect(transcodeUrl("http://start.test/x", { fetcher: toFtp, resolver: publicResolve })).rejects.toMatchObject({
+      code: "E_EDGE_SCHEME",
+    });
+
+    // Six distinct hops (one past the cap of 5) are refused.
+    let n = 0;
+    const chain: typeof fetch = (input) => {
+      const u = new URL(typeof input === "string" ? input : input.url);
+      n += 1;
+      return Promise.resolve(
+        new Response(null, { status: 302, headers: { location: `http://h${n}.test/${u.pathname}` } }),
+      );
+    };
+    await expect(transcodeUrl("http://h0.test/x", { fetcher: chain, resolver: publicResolve })).rejects.toMatchObject({
+      code: "E_EDGE_FETCH",
+    });
+
+    // A 307/308 chain keeps the method contract; the guard still applies per hop.
+    const permanent: typeof fetch = () =>
+      Promise.resolve(new Response(null, { status: 308, headers: { location: "http://192.168.1.1/x" } }));
+    await expect(transcodeUrl("http://start.test/x", { fetcher: permanent, resolver: publicResolve })).rejects.toMatchObject({
+      code: "E_EDGE_PRIVATE",
+    });
+  });
+
+  it("adversarial redirect: private hop mid-chain via literal host is refused before fetching it", async () => {
+    const seen: string[] = [];
+    const fetcher: typeof fetch = (input) => {
+      const u = new URL(typeof input === "string" ? input : input.url);
+      seen.push(u.hostname);
+      if (u.hostname === "attacker.test") {
+        return Promise.resolve(
+          new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data" } }),
+        );
+      }
+      return Promise.resolve(ok(PAGE));
+    };
+    await expect(
+      transcodeUrl("http://attacker.test/x", { fetcher, resolver: async () => [{ address: "1.2.3.4", family: 4 }] }),
+    ).rejects.toMatchObject({ code: "E_EDGE_PRIVATE" });
+    // The metadata service was never contacted.
+    expect(seen).toEqual(["attacker.test"]);
+  });
+
   it("serves every format from one conversion", async () => {
     const result = await transcodeUrl("https://example.com/r", optsWith(ok(PAGE)));
     const canonical = formatConversion(result, "canonical");
